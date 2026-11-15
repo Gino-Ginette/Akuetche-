@@ -1,5 +1,5 @@
 // Service worker : rend l'application utilisable hors connexion.
-const CACHE = 'mon-budget-v1';
+const CACHE = 'mon-budget-v2';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -14,7 +14,7 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Réponse immédiate depuis le cache, mise à jour en arrière-plan pour la prochaine ouverture.
+// Réseau d'abord pour recevoir les mises à jour ; cache si hors connexion ou réseau trop lent.
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
@@ -24,8 +24,10 @@ self.addEventListener('fetch', e => {
       const fresh = fetch(req).then(res => {
         if (res.ok) cache.put(req, res.clone());
         return res;
-      }).catch(() => cached);
-      return cached || fresh;
+      });
+      if (!cached) return fresh;
+      const timeout = new Promise(resolve => setTimeout(() => resolve(cached), 2500));
+      return Promise.race([fresh.catch(() => cached), timeout]);
     })
   );
 });

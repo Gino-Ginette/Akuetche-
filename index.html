@@ -23,16 +23,27 @@
 <dialog id="itemDialog" class="sheet">
   <form id="itemForm" method="dialog" novalidate>
     <h2 id="itemTitle"></h2>
-    <label>Libellé
-      <input id="fLabel" type="text" autocomplete="off" maxlength="60" required>
-    </label>
     <label><span id="fAmountLabel">Montant</span> (FCFA)
-      <input id="fAmount" type="text" inputmode="numeric" autocomplete="off" required>
+      <input id="fAmount" class="amount-input" type="text" inputmode="numeric" autocomplete="off" placeholder="0">
+    </label>
+    <div class="field-title">Catégorie</div>
+    <div id="catGrid" class="cat-grid" role="radiogroup" aria-label="Catégorie"></div>
+    <button type="button" id="delCat" class="link danger-text" hidden>Supprimer cette catégorie</button>
+    <div id="newCat" class="new-cat" hidden>
+      <label>Nom de la nouvelle catégorie
+        <input id="ncName" type="text" autocomplete="off" maxlength="24">
+      </label>
+      <div id="ncIcons" class="icon-grid" role="radiogroup" aria-label="Icône"></div>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="ncCancel">Annuler</button>
+        <button type="button" class="btn primary" id="ncAdd">Ajouter</button>
+      </div>
+    </div>
+    <label>Note (facultatif)
+      <input id="fLabel" type="text" autocomplete="off" maxlength="60">
     </label>
     <div id="expenseFields">
-      <label>Catégorie
-        <select id="fCategory"></select>
-      </label>
       <label class="check-line">
         <input id="fDone" type="checkbox">
         <span id="fDoneLabel">Déjà payée</span>

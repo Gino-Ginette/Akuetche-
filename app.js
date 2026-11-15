@@ -1,21 +1,41 @@
 'use strict';
 
+/* ---------- Catégories ---------- */
+
+// h = teinte de la pastille d'icône.
+const EXPENSE_CATS = [
+  { id: 'nourriture', icon: '🍲', label: 'Alimentation', h: 28 },
+  { id: 'logement', icon: '🏠', label: 'Logement', h: 205 },
+  { id: 'transport', icon: '🚕', label: 'Transport', h: 48 },
+  { id: 'factures', icon: '💡', label: 'Factures', h: 55 },
+  { id: 'communication', icon: '📱', label: 'Crédit & internet', h: 230 },
+  { id: 'sante', icon: '💊', label: 'Santé', h: 350 },
+  { id: 'education', icon: '🎓', label: 'Éducation', h: 260 },
+  { id: 'famille', icon: '👪', label: 'Aide familiale', h: 320 },
+  { id: 'habillement', icon: '👗', label: 'Habillement', h: 290 },
+  { id: 'loisirs', icon: '🎉', label: 'Loisirs', h: 15 },
+  { id: 'vacances', icon: '🏖️', label: 'Vacances', h: 190 },
+  { id: 'tontine', icon: '🤝', label: 'Tontine', h: 140 },
+  { id: 'cadeau', icon: '🎁', label: 'Cadeau', h: 335 },
+  { id: 'epargne', icon: '🏦', label: 'Épargne', h: 165 },
+  { id: 'autre', icon: '📦', label: 'Autres', h: 30 },
+];
+const INCOME_CATS = [
+  { id: 'salaire', icon: '💼', label: 'Salaire', h: 165 },
+  { id: 'commerce', icon: '🛍️', label: 'Commerce', h: 28 },
+  { id: 'prime', icon: '🏅', label: 'Prime', h: 48 },
+  { id: 'don', icon: '🎁', label: 'Don reçu', h: 335 },
+  { id: 'tontine', icon: '🤝', label: 'Tontine', h: 140 },
+  { id: 'remboursement', icon: '↩️', label: 'Remboursement', h: 230 },
+  { id: 'report', icon: '📅', label: 'Report', h: 205, hidden: true },
+  { id: 'autre', icon: '💰', label: 'Autres', h: 90 },
+];
+const ICON_CHOICES = ['🛒', '🍽️', '☕', '⛽', '🏍️', '🚌', '✈️', '🔧', '💧', '💻', '📚', '👶', '🏥', '⛪',
+  '💇', '👟', '⚽', '🎵', '🐔', '🌾', '🐶', '🏋️', '💍', '🧾', '💰', '💼', '🛍️', '⭐'];
+
 /* ---------- Données ---------- */
 
 const STORAGE_KEY = 'mon-budget-v1';
-
-const CATEGORIES = [
-  ['logement', '🏠 Logement'],
-  ['nourriture', '🍲 Nourriture'],
-  ['transport', '🚕 Transport'],
-  ['factures', '💡 Factures'],
-  ['sante', '💊 Santé'],
-  ['famille', '👪 Famille'],
-  ['loisirs', '🎉 Loisirs'],
-  ['epargne', '🏦 Épargne'],
-  ['autre', '📦 Autre'],
-];
-const CAT_LABEL = Object.fromEntries(CATEGORIES);
 
 let state = load();
 let current = ymOf(new Date());
@@ -23,9 +43,20 @@ let current = ymOf(new Date());
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (s && typeof s.months === 'object' && s.months) return s;
+    if (s && typeof s.months === 'object' && s.months) {
+      if (!Array.isArray(s.cats)) s.cats = [];
+      // Entrées créées avant l'arrivée des catégories : on déduit la catégorie du libellé.
+      for (const m of Object.values(s.months)) {
+        for (const i of m.incomes || []) {
+          if (i.category) continue;
+          const c = INCOME_CATS.find(c => i.label.trim().toLowerCase().startsWith(c.label.toLowerCase()));
+          if (c) i.category = c.id;
+        }
+      }
+      return s;
+    }
   } catch (e) { /* données absentes ou illisibles */ }
-  return { version: 1, months: {} };
+  return { version: 1, months: {}, cats: [] };
 }
 
 function save() {
@@ -46,6 +77,23 @@ function month(ym, create) {
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+function hueOf(str) {
+  let h = 0;
+  for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+
+// Catégories prédéfinies suivies des catégories personnelles, « Autres » en dernier.
+function cats(kind) {
+  const base = kind === 'income' ? INCOME_CATS : EXPENSE_CATS;
+  const custom = state.cats.filter(c => c.kind === kind).map(c => ({ ...c, h: hueOf(c.id), custom: true }));
+  return [...base.slice(0, -1), ...custom, base[base.length - 1]];
+}
+function catOf(kind, id) {
+  const list = cats(kind);
+  return list.find(c => c.id === id) || list[list.length - 1];
+}
 
 /* ---------- Dates et formats ---------- */
 
@@ -90,6 +138,7 @@ function totals(m) {
 
 const $ = id => document.getElementById(id);
 const app = $('app');
+const ico = c => `<span class="ico" style="--h:${c.h}" aria-hidden="true">${esc(c.icon)}</span>`;
 
 function render() {
   $('monthLabel').textContent = monthName(current);
@@ -114,7 +163,7 @@ function summaryHtml(t) {
       : `<p class="note">Il reste ${fcfa(t.pending)} de dépenses planifiées à payer. Après cela, il vous restera ${fcfa(afterPlan)}.</p>`;
   }
   return `
-  <section class="card summary">
+  <section class="summary">
     <div class="label">Reste disponible</div>
     <div class="big ${over ? 'neg' : ''}">${num(t.left)} <small>FCFA</small></div>
     <div class="bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
@@ -144,17 +193,24 @@ function starterHtml() {
 }
 
 function incomesHtml(m) {
-  const rows = m.incomes.map(i => `
+  const rows = m.incomes.map(i => {
+    const c = catOf('income', i.carried ? 'report' : i.category);
+    return `
     <li class="row">
       <button class="body" data-act="edit-income" data-id="${i.id}">
-        <span class="txt"><span class="name">${esc(i.label)}</span></span>
+        ${ico(c)}
+        <span class="txt">
+          <span class="name">${esc(i.label)}</span>
+          ${i.label !== c.label ? `<span class="sub">${esc(c.label)}</span>` : ''}
+        </span>
         <span class="amt">${num(i.amount)}</span>
       </button>
-    </li>`).join('');
+    </li>`;
+  }).join('');
   return `
   <section class="card">
     <div class="section-head"><h2>Entrées</h2><button class="add-btn" data-act="add-income">+ Ajouter</button></div>
-    ${rows ? `<ul class="list">${rows}</ul>` : '<p class="empty">Salaire, ventes, dons reçus…</p>'}
+    ${rows ? `<ul class="list">${rows}</ul>` : '<p class="empty">Salaire, commerce, dons reçus…</p>'}
   </section>`;
 }
 
@@ -162,20 +218,23 @@ function expensesHtml(m) {
   // Les dépenses à payer d'abord, celles déjà cochées ensuite.
   const sorted = [...m.expenses].sort((a, b) => a.done - b.done);
   const rows = sorted.map(e => {
+    const c = catOf('expense', e.category);
     const unplanned = e.planned === false;
     let amt = num(e.done ? paid(e) : e.amount);
     if (e.done && !unplanned && e.actual != null && e.actual !== e.amount) {
       const diff = e.actual - e.amount;
       amt += `<small class="${diff > 0 ? 'over' : 'under'}">prévu ${num(e.amount)} (${diff > 0 ? '+' : '−'}${num(Math.abs(diff))})</small>`;
     }
+    const sub = (e.label !== c.label ? esc(c.label) : '') + (unplanned ? '<span class="tag">imprévu</span>' : '');
     return `
     <li class="row ${e.done ? 'done' : ''}">
       <button class="tick" role="checkbox" aria-checked="${e.done}" data-act="toggle" data-id="${e.id}"
         aria-label="${e.done ? 'Décocher' : 'Marquer comme payée'} : ${esc(e.label)}"><i>✓</i></button>
       <button class="body" data-act="edit-expense" data-id="${e.id}">
+        ${ico(c)}
         <span class="txt">
           <span class="name">${esc(e.label)}</span>
-          <span class="sub">${esc(CAT_LABEL[e.category] || CAT_LABEL.autre)}${unplanned ? '<span class="tag">imprévu</span>' : ''}</span>
+          ${sub ? `<span class="sub">${sub}</span>` : ''}
         </span>
         <span class="amt">${amt}</span>
       </button>
@@ -191,24 +250,27 @@ function expensesHtml(m) {
 function categoriesHtml(m) {
   const by = {};
   for (const e of m.expenses) {
-    const c = CAT_LABEL[e.category] ? e.category : 'autre';
-    by[c] = by[c] || { planned: 0, spent: 0 };
-    by[c].planned += plannedAmount(e);
-    by[c].spent += paid(e);
+    const id = catOf('expense', e.category).id;
+    by[id] = by[id] || { planned: 0, spent: 0 };
+    by[id].planned += plannedAmount(e);
+    by[id].spent += paid(e);
   }
-  const rows = CATEGORIES.filter(([k]) => by[k]).map(([k, label]) => {
-    const { planned, spent } = by[k];
+  const rows = cats('expense').filter(c => by[c.id]).map(c => {
+    const { planned, spent } = by[c.id];
     const over = spent > planned;
     const pct = planned > 0 ? Math.min(100, Math.round(spent / planned * 100)) : (spent > 0 ? 100 : 0);
     return `
     <div class="cat">
-      <div class="cat-top"><span>${esc(label)}</span><span>${num(spent)} / ${num(planned)}</span></div>
-      <div class="bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
+      ${ico(c)}
+      <div class="cat-main">
+        <div class="cat-top"><span>${esc(c.label)}</span><span>${num(spent)} / ${num(planned)}</span></div>
+        <div class="bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
+      </div>
     </div>`;
   }).join('');
   return `
   <section class="card">
-    <div class="section-head"><h2>Par catégorie</h2><span class="bar-caption">dépensé / planifié</span></div>
+    <div class="section-head"><h2>Par catégorie</h2><span class="hint">dépensé / planifié</span></div>
     ${rows}
   </section>`;
 }
@@ -216,9 +278,9 @@ function categoriesHtml(m) {
 /* ---------- Formulaire d'ajout / modification ---------- */
 
 const dlg = $('itemDialog');
-let editing = null; // { kind: 'income' | 'expense', id: string | null }
-
-$('fCategory').innerHTML = CATEGORIES.map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+let editing = null;   // { kind: 'income' | 'expense', id: string | null }
+let selCat = null;    // catégorie choisie dans le formulaire
+let newIcon = ICON_CHOICES[0];
 
 function openItem(kind, id) {
   editing = { kind, id };
@@ -226,22 +288,99 @@ function openItem(kind, id) {
   const item = id ? (kind === 'income' ? m.incomes : m.expenses).find(x => x.id === id) : null;
   const isExpense = kind === 'expense';
   const unplanned = item && item.planned === false;
+  const cat = catOf(kind, item ? (item.carried ? 'report' : item.category) : null);
+  selCat = cat.id;
 
   $('itemTitle').textContent = (item ? 'Modifier ' : 'Nouvelle ') + (isExpense ? (item ? 'la dépense' : 'dépense') : (item ? "l'entrée" : 'entrée'));
-  $('fLabel').value = item ? item.label : '';
   $('fAmount').value = item ? item.amount : '';
+  // Une note identique au nom de la catégorie n'est pas une vraie note.
+  $('fLabel').value = item && item.label !== cat.label ? item.label : '';
+  $('fLabel').placeholder = isExpense ? 'Ex. loyer de décembre, carburant moto' : 'Ex. salaire de décembre';
   $('expenseFields').hidden = !isExpense;
-  $('fCategory').value = item && CAT_LABEL[item.category] ? item.category : 'autre';
   $('fDone').checked = !!(item && item.done);
   $('fDoneLabel').textContent = item ? 'Payée' : 'Déjà payée (dépense imprévue)';
   $('fActual').value = item && item.actual != null ? item.actual : '';
   $('fDelete').hidden = !item;
   $('fError').hidden = true;
+  $('newCat').hidden = true;
   dlg.dataset.unplanned = unplanned ? '1' : '';
+  renderCatGrid();
   syncActual();
   dlg.showModal();
-  if (!item) $('fLabel').focus();
+  dlg.scrollTop = 0;
+  if (!item) $('fAmount').focus();
 }
+
+function renderCatGrid() {
+  const tiles = cats(editing.kind)
+    .filter(c => !c.hidden || c.id === selCat)
+    .map(c => `
+      <button type="button" class="cat-tile" role="radio" aria-checked="${c.id === selCat}" data-cat="${esc(c.id)}">
+        ${ico(c)}<span>${esc(c.label)}</span>
+      </button>`).join('');
+  $('catGrid').innerHTML = tiles + `
+      <button type="button" class="cat-tile new" data-cat="+">
+        <span class="ico plus" aria-hidden="true">+</span><span>Nouvelle</span>
+      </button>`;
+  $('delCat').hidden = !catOf(editing.kind, selCat).custom;
+}
+
+$('catGrid').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-cat]');
+  if (!b) return;
+  if (b.dataset.cat === '+') return openNewCat();
+  selCat = b.dataset.cat;
+  $('newCat').hidden = true;
+  renderCatGrid();
+});
+
+function openNewCat() {
+  newIcon = ICON_CHOICES[0];
+  $('ncName').value = '';
+  renderIconGrid();
+  $('newCat').hidden = false;
+  $('ncName').focus();
+  $('newCat').scrollIntoView({ block: 'nearest' });
+}
+function renderIconGrid() {
+  $('ncIcons').innerHTML = ICON_CHOICES.map(i =>
+    `<button type="button" role="radio" aria-checked="${i === newIcon}" data-icon="${i}">${i}</button>`).join('');
+}
+$('ncIcons').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-icon]');
+  if (!b) return;
+  newIcon = b.dataset.icon;
+  renderIconGrid();
+});
+function addCat() {
+  const label = $('ncName').value.trim();
+  if (!label) return $('ncName').focus();
+  const exists = cats(editing.kind).find(c => c.label.toLowerCase() === label.toLowerCase());
+  if (exists) {
+    selCat = exists.id;
+  } else {
+    const c = { id: 'c' + uid(), kind: editing.kind, label, icon: newIcon };
+    state.cats.push(c);
+    save();
+    selCat = c.id;
+  }
+  $('newCat').hidden = true;
+  renderCatGrid();
+}
+$('ncAdd').addEventListener('click', addCat);
+$('ncCancel').addEventListener('click', () => { $('newCat').hidden = true; });
+$('ncName').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { ev.preventDefault(); addCat(); }
+});
+$('delCat').addEventListener('click', () => {
+  const c = catOf(editing.kind, selCat);
+  if (!c.custom || !confirm(`Supprimer la catégorie « ${c.label} » ? Les lignes qui l'utilisent passeront dans « Autres ».`)) return;
+  state.cats = state.cats.filter(x => x.id !== c.id);
+  save();
+  selCat = catOf(editing.kind, null).id;
+  renderCatGrid();
+  render();
+});
 
 function syncActual() {
   const isExpense = editing && editing.kind === 'expense';
@@ -254,20 +393,20 @@ $('fDone').addEventListener('change', syncActual);
 
 $('itemForm').addEventListener('submit', ev => {
   ev.preventDefault();
-  const label = $('fLabel').value.trim();
   const amount = parseAmount($('fAmount').value);
   const fail = msg => { $('fError').textContent = msg; $('fError').hidden = false; };
-  if (!label) return fail('Indiquez un libellé.');
   if (!(amount > 0)) return fail('Indiquez un montant supérieur à 0.');
+  const cat = catOf(editing.kind, selCat);
+  const category = cat.id;
+  const label = $('fLabel').value.trim() || cat.label;
 
   const m = month(current, true);
   if (editing.kind === 'income') {
     const item = editing.id && m.incomes.find(x => x.id === editing.id);
-    if (item) Object.assign(item, { label, amount });
-    else m.incomes.push({ id: uid(), label, amount });
+    if (item) Object.assign(item, { label, amount, category });
+    else m.incomes.push({ id: uid(), label, amount, category });
   } else {
     const done = $('fDone').checked;
-    const category = $('fCategory').value;
     const item = editing.id && m.expenses.find(x => x.id === editing.id);
     if (item) {
       let actual = null;
@@ -335,7 +474,7 @@ function copyPrevious() {
   const target = month(current, true);
   for (const i of pm.incomes) {
     if (i.carried) continue; // un report n'est pas une entrée récurrente
-    target.incomes.push({ id: uid(), label: i.label, amount: i.amount });
+    target.incomes.push({ id: uid(), label: i.label, amount: i.amount, category: i.category });
   }
   for (const e of pm.expenses) {
     if (e.planned === false) continue; // les imprévus ne font pas partie du plan
@@ -354,7 +493,7 @@ function carryPrevious() {
   const m = month(current, true);
   const existing = m.incomes.find(i => i.carried);
   if (existing) existing.amount = left;
-  else m.incomes.unshift({ id: uid(), label: `Report de ${monthName(prev, false)}`, amount: left, carried: true });
+  else m.incomes.unshift({ id: uid(), label: `Report de ${monthName(prev, false)}`, amount: left, category: 'report', carried: true });
   save();
   render();
   toast(`${fcfa(left)} reportés.`);
@@ -416,7 +555,10 @@ $('importFile').addEventListener('change', async ev => {
   for (const m of Object.values(data.months)) {
     for (const x of [...m.incomes, ...m.expenses]) if (!x.id) x.id = uid();
   }
-  state = { version: 1, months: data.months };
+  const importedCats = (Array.isArray(data.cats) ? data.cats : []).filter(c =>
+    c && typeof c.id === 'string' && typeof c.label === 'string' && typeof c.icon === 'string' &&
+    (c.kind === 'income' || c.kind === 'expense'));
+  state = { version: 1, months: data.months, cats: importedCats };
   save();
   render();
   toast('Sauvegarde importée.');
