@@ -7,6 +7,7 @@ Application web personnelle (PWA) pour suivre et planifier son budget mensuel en
 - **Accueil** : solde disponible, entrées et suivi du plan (dépensé / planifié, reste par catégorie).
 - Copie du plan du mois précédent, report du reste, catégories personnelles avec icône.
 - **Créances** : argent prêté, échéance convenue, remboursements partiels ou complets, totaux prêté / remboursé / restant dû, rappel des retards.
+- **Dettes** : ce que je dois, échéance, motif, paiements par tranche ; chaque paiement peut être déduit du solde du mois.
 - Conseils personnalisés à partir des chiffres du mois.
 - Alertes : première alerte dès 50 % des entrées dépensées, seuil de dépenses réglable, plafond mensuel, catégorie presque épuisée ou dépassée, mois plus dépensier que d'habitude.
 - Tableau de bord : courbe des dépenses sur l'année choisie avec le pic, et répartition par catégorie.

@@ -340,3 +340,9 @@ form input:focus, form select:focus { outline: 2px solid var(--accent); outline-
 .pays .x { border: 0; background: none; color: var(--muted); width: 40px; height: 40px; font-size: 1rem; }
 #loanDetailBody .actions { margin-top: 16px; }
 .tabs button { padding-left: 2px; padding-right: 2px; }
+
+/* Bascule créances / dettes */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin: 4px 0 16px; border-radius: 14px; background: rgba(255,255,255,.14); }
+.seg button { border: 0; border-radius: 10px; min-height: 42px; background: none; color: #fff; font-weight: 600; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--accent-strong); }
+#payForm .check-line { margin-bottom: 8px; }

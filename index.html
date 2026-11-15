@@ -95,26 +95,26 @@
   <button data-view="home" aria-current="page"><span aria-hidden="true">🏠</span>Accueil</button>
   <button data-view="plan"><span aria-hidden="true">🗓️</span>Planifier</button>
   <button data-view="expenses"><span aria-hidden="true">🧾</span>Dépenses</button>
-  <button data-view="loans"><span aria-hidden="true">🤝</span>Créances</button>
+  <button data-view="loans"><span aria-hidden="true">🤝</span>Créances &amp; dettes</button>
   <button data-view="stats"><span aria-hidden="true">📊</span>Tableau de bord</button>
 </nav>
 
 <dialog id="loanDialog" class="sheet">
   <form id="loanForm" method="dialog" novalidate>
     <h2 id="loanTitle"></h2>
-    <label>À qui avez-vous prêté ?
+    <label><span id="lPersonLabel">À qui avez-vous prêté ?</span>
       <input id="lPerson" type="text" autocomplete="off" maxlength="40">
     </label>
-    <label>Montant prêté (FCFA)
+    <label><span id="lAmountLabel">Montant prêté (FCFA)</span>
       <input id="lAmount" class="amount-input" type="text" inputmode="numeric" autocomplete="off" placeholder="0">
     </label>
-    <label>Date du prêt
+    <label><span id="lDateLabel">Date du prêt</span>
       <input id="lDate" type="date">
     </label>
     <label>Date d'échéance convenue (facultatif)
       <input id="lDue" type="date">
     </label>
-    <label>Note (facultatif)
+    <label>Motif (facultatif)
       <input id="lNote" type="text" autocomplete="off" maxlength="80" placeholder="Ex. pour la scolarité">
     </label>
     <p class="error" id="lError" hidden></p>

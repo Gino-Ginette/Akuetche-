@@ -20,6 +20,7 @@ const EXPENSE_CATS = [
   { id: 'cotisation', icon: '🪙', label: 'Cotisation', h: 75 },
   { id: 'cadeau', icon: '🎁', label: 'Cadeau', h: 335 },
   { id: 'epargne', icon: '🏦', label: 'Épargne', h: 165 },
+  { id: 'dette', icon: '💳', label: 'Remboursement de dette', h: 0 },
   { id: 'autre', icon: '📦', label: 'Autres', h: 30 },
 ];
 const INCOME_CATS = [
@@ -98,12 +99,14 @@ let statsPeriod = 'year';         // 'year' ou 'AAAA-MM' pour la répartition
 // et expenses (dépenses datées, déduites du plan et du solde).
 function migrate(s) {
   s.version = 2;
-  // Créances : argent prêté, avec les remboursements reçus.
-  s.loans = (Array.isArray(s.loans) ? s.loans : []).filter(l =>
-    l && typeof l.person === 'string' && Number.isFinite(l.amount));
-  for (const l of s.loans) {
-    l.id = l.id || uid();
-    l.payments = (Array.isArray(l.payments) ? l.payments : []).filter(p => p && Number.isFinite(p.amount));
+  // Créances (loans : on me doit) et dettes (debts : je dois), avec leurs paiements.
+  for (const key of ['loans', 'debts']) {
+    s[key] = (Array.isArray(s[key]) ? s[key] : []).filter(l =>
+      l && typeof l.person === 'string' && Number.isFinite(l.amount));
+    for (const l of s[key]) {
+      l.id = l.id || uid();
+      l.payments = (Array.isArray(l.payments) ? l.payments : []).filter(p => p && Number.isFinite(p.amount));
+    }
   }
   if (!Array.isArray(s.cats)) s.cats = [];
   s.settings = { ...DEFAULT_SETTINGS, ...(s.settings || {}) };
@@ -142,7 +145,7 @@ function load() {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (s && typeof s.months === 'object' && s.months) return migrate(s);
   } catch (e) { /* données absentes ou illisibles */ }
-  return { version: 2, months: {}, cats: [], loans: [], settings: { ...DEFAULT_SETTINGS } };
+  return { version: 2, months: {}, cats: [], loans: [], debts: [], settings: { ...DEFAULT_SETTINGS } };
 }
 
 function save() {
@@ -245,21 +248,25 @@ function alertsFor(ym) {
     const pm = state.months[shift(ym, -i)];
     if (pm) past.push(totals(pm).spent);
   }
-  // Créances : rappel sur le mois en cours uniquement.
+  // Créances et dettes : rappel sur le mois en cours uniquement.
   if (ym === ymOf(new Date())) {
     const today = todayStr();
-    const open = state.loans.filter(l => loanLeft(l) > 0 && l.due);
-    const late = open.filter(l => l.due < today);
-    const soon = open.filter(l => l.due >= today && daysBetween(today, l.due) <= 7);
     const names = list => [...new Set(list.map(l => l.person))].join(', ');
     const sum = list => list.reduce((s, l) => s + loanLeft(l), 0);
-    if (late.length) {
-      add('loans-late', 'warning', late.length > 1 ? `${late.length} créances en retard` : 'Une créance en retard',
-        `${names(late)} : ${fcfa(sum(late))} à récupérer, échéance dépassée.`);
-    }
-    if (soon.length) {
-      add('loans-soon', 'info', 'Créance bientôt à échéance',
-        `${names(soon)} : ${fcfa(sum(soon))} attendus dans les 7 jours.`);
+    for (const key of ['debts', 'loans']) {
+      const debt = key === 'debts';
+      const open = state[key].filter(l => loanLeft(l) > 0 && l.due);
+      const late = open.filter(l => l.due < today);
+      const soon = open.filter(l => l.due >= today && daysBetween(today, l.due) <= 7);
+      const word = debt ? 'dette' : 'créance';
+      if (late.length) {
+        add(key + '-late', 'warning', late.length > 1 ? `${late.length} ${word}s en retard` : `Une ${word} en retard`,
+          `${names(late)} : ${fcfa(sum(late))} à ${debt ? 'payer' : 'récupérer'}, échéance dépassée.`);
+      }
+      if (soon.length) {
+        add(key + '-soon', 'info', debt ? 'Dette bientôt à échéance' : 'Créance bientôt à échéance',
+          `${names(soon)} : ${fcfa(sum(soon))} ${debt ? 'à payer' : 'attendus'} dans les 7 jours.`);
+      }
     }
   }
   if (past.length >= 2) {
@@ -315,6 +322,10 @@ function tipsFor(ym) {
     const free = t.income - t.planned;
     if (t.planned > 0 && free > 0) {
       tips.push(`${fcfa(free)} ne sont affectés à aucune catégorie. Donnez-leur une destination (épargne, imprévus) pour qu'ils ne partent pas en petites dépenses.`);
+    }
+    const owed = state.debts.reduce((s, l) => s + loanLeft(l), 0);
+    if (owed > 0 && !(t.by.dette && t.by.dette.planned)) {
+      tips.push(`Vous avez ${fcfa(owed)} de dettes. Prévoyez une ligne « Remboursement de dette » dans votre plan pour les solder régulièrement.`);
     }
     const offPlan = cats('expense').filter(c => t.by[c.id] && !t.by[c.id].planned);
     if (offPlan.length) {
@@ -874,7 +885,7 @@ $('importFile').addEventListener('change', async ev => {
   const importedCats = (Array.isArray(data.cats) ? data.cats : []).filter(c =>
     c && typeof c.id === 'string' && typeof c.label === 'string' && typeof c.icon === 'string' &&
     (c.kind === 'income' || c.kind === 'expense'));
-  state = migrate({ months: data.months, cats: importedCats, settings: data.settings, loans: data.loans });
+  state = migrate({ months: data.months, cats: importedCats, settings: data.settings, loans: data.loans, debts: data.debts });
   save();
   render();
   toast('Sauvegarde importée.');
@@ -1121,7 +1132,31 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => { if (view === 'stats') render(); }, 150);
 });
 
-/* ---------- Créances ---------- */
+/* ---------- Créances et dettes ---------- */
+
+// Les deux listes ont la même forme ; seul le vocabulaire change.
+const LOAN_TEXT = {
+  loans: {
+    hero: 'On me doit', lent: 'Prêté', paid: 'Remboursé', caption: 'de ce que vous avez prêté est remboursé',
+    none: 'Aucun prêt enregistré', add: '＋ Enregistrer un prêt', empty: "Personne ne vous doit d'argent pour le moment.",
+    count: 'créance', doneTitle: 'Remboursées', doneOn: 'Remboursé', part: 'reçus sur',
+    formNew: 'Nouveau prêt', formEdit: 'Modifier le prêt', who: 'À qui avez-vous prêté ?',
+    amount: 'Montant prêté (FCFA)', date: 'Date du prêt', startedOn: 'Prêté le', left: 'Reste dû',
+    allPaid: 'Entièrement remboursé.', payTitle: 'Enregistrer un remboursement', payBtn: 'Enregistrer le remboursement',
+    paysTitle: 'Remboursements reçus', tooMuch: 'à rembourser', del: 'Supprimer le prêt à',
+  },
+  debts: {
+    hero: 'Je dois', lent: 'Emprunté', paid: 'Payé', caption: 'de vos dettes est payé',
+    none: 'Aucune dette enregistrée', add: '＋ Enregistrer une dette', empty: "Vous n'avez aucune dette en cours.",
+    count: 'dette', doneTitle: 'Soldées', doneOn: 'Soldée', part: 'payés sur',
+    formNew: 'Nouvelle dette', formEdit: 'Modifier la dette', who: 'À qui devez-vous ?',
+    amount: 'Montant de la dette (FCFA)', date: 'Date de la dette', startedOn: 'Contractée le', left: 'Reste à payer',
+    allPaid: 'Entièrement payée.', payTitle: 'Enregistrer un paiement', payBtn: 'Enregistrer le paiement',
+    paysTitle: 'Paiements effectués', tooMuch: 'à payer', del: 'Supprimer la dette envers',
+  },
+};
+let loanKind = 'loans'; // liste affichée : 'loans' (créances) ou 'debts' (dettes)
+const LT = () => LOAN_TEXT[loanKind];
 
 const loanPaid = l => l.payments.reduce((s, p) => s + p.amount, 0);
 const loanLeft = l => Math.max(0, l.amount - loanPaid(l));
@@ -1132,23 +1167,31 @@ function fmtDate(date) {
 }
 const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
 
-// Texte et état de l'échéance d'une créance non soldée.
+// Texte et état de l'échéance d'une ligne non soldée.
 function dueInfo(l) {
   if (!l.due) return { text: 'Sans échéance', late: false };
   const n = daysBetween(todayStr(), l.due);
   if (n < 0) return { text: `En retard de ${plural(-n, 'jour')}`, late: true };
-  if (n === 0) return { text: "À rembourser aujourd'hui", late: false };
+  if (n === 0) return { text: "Échéance aujourd'hui", late: false };
   return { text: `Échéance le ${fmtDate(l.due)}`, late: false };
 }
 
+// Retire du budget les dépenses créées par des paiements de dette.
+function dropExpenses(ids) {
+  const set = new Set(ids.filter(Boolean));
+  if (!set.size) return;
+  for (const m of Object.values(state.months)) m.expenses = m.expenses.filter(e => !set.has(e.id));
+}
+
 function renderLoans() {
-  $('monthLabel').textContent = 'Créances';
-  const loans = state.loans;
-  const lent = loans.reduce((s, l) => s + l.amount, 0);
-  const paid = loans.reduce((s, l) => s + Math.min(l.amount, loanPaid(l)), 0);
-  const open = loans.filter(l => loanLeft(l) > 0)
+  $('monthLabel').textContent = 'Créances & dettes';
+  const T = LT();
+  const list = state[loanKind];
+  const lent = list.reduce((s, l) => s + l.amount, 0);
+  const paid = list.reduce((s, l) => s + Math.min(l.amount, loanPaid(l)), 0);
+  const open = list.filter(l => loanLeft(l) > 0)
     .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
-  const done = loans.filter(l => loanLeft(l) === 0);
+  const done = list.filter(l => loanLeft(l) === 0);
   const late = open.filter(l => dueInfo(l).late).reduce((s, l) => s + loanLeft(l), 0);
   const pct = lent > 0 ? Math.round(paid / lent * 100) : 0;
 
@@ -1156,7 +1199,7 @@ function renderLoans() {
     const left = loanLeft(l), p = loanPaid(l);
     const due = dueInfo(l);
     const sub = left === 0
-      ? `Remboursé${l.payments.length ? ' le ' + fmtDate(l.payments.reduce((d, x) => (x.date > d ? x.date : d), '')) : ''}`
+      ? `${T.doneOn}${l.payments.length ? ' le ' + fmtDate(l.payments.reduce((d, x) => (x.date > d ? x.date : d), '')) : ''}`
       : (due.late ? '⚠️ ' : '') + due.text;
     return `
     <li class="row">
@@ -1165,45 +1208,52 @@ function renderLoans() {
         <span class="cat-main">
           <span class="cat-top"><span class="who">${esc(l.person)}</span><b>${num(left === 0 ? l.amount : left)}</b></span>
           ${left > 0 && p > 0 ? `<span class="bar"><i style="width:${Math.round(p / l.amount * 100)}%"></i></span>` : ''}
-          <span class="sub ${due.late && left > 0 ? 'late' : ''}">${esc(sub)}${left > 0 && p > 0 ? ` · ${num(p)} reçus sur ${num(l.amount)}` : ''}</span>
+          <span class="sub ${due.late && left > 0 ? 'late' : ''}">${esc(sub)}${left > 0 && p > 0 ? ` · ${num(p)} ${T.part} ${num(l.amount)}` : ''}</span>
         </span>
       </button>
     </li>`;
   };
+  const seg = (kind, label) =>
+    `<button data-act="loan-kind" data-kind="${kind}" aria-pressed="${loanKind === kind}">${label}</button>`;
 
   app.innerHTML = `
   <section class="summary">
-    <div class="label">On me doit</div>
+    <div class="seg" role="group" aria-label="Liste affichée">${seg('loans', 'On me doit')}${seg('debts', 'Je dois')}</div>
+    <div class="label">${T.hero}</div>
     <div class="big">${num(lent - paid)} <small>FCFA</small></div>
     <div class="bar"><i style="width:${pct}%"></i></div>
-    <div class="bar-caption">${lent > 0 ? pct + ' % de ce que vous avez prêté est remboursé' : 'Aucun prêt enregistré'}</div>
+    <div class="bar-caption">${lent > 0 ? `${pct} % ${T.caption}` : T.none}</div>
     <div class="stats">
-      <div class="stat"><span>Prêté</span><b>${num(lent)}</b></div>
-      <div class="stat"><span>Remboursé</span><b>${num(paid)}</b></div>
+      <div class="stat"><span>${T.lent}</span><b>${num(lent)}</b></div>
+      <div class="stat"><span>${T.paid}</span><b>${num(paid)}</b></div>
       <div class="stat"><span>En retard</span><b>${num(late)}</b></div>
     </div>
   </section>
-  <button class="btn primary block big-add" data-act="add-loan">＋ Enregistrer un prêt</button>
+  <button class="btn primary block big-add" data-act="add-loan">${T.add}</button>
   <section class="card">
-    <div class="section-head"><h2>En cours</h2><span class="hint">${plural(open.length, 'créance')}</span></div>
-    ${open.length ? `<ul class="list">${open.map(row).join('')}</ul>`
-      : '<p class="empty">Personne ne vous doit d\'argent pour le moment.</p>'}
+    <div class="section-head"><h2>En cours</h2><span class="hint">${plural(open.length, T.count)}</span></div>
+    ${open.length ? `<ul class="list">${open.map(row).join('')}</ul>` : `<p class="empty">${T.empty}</p>`}
   </section>
   ${done.length ? `
   <section class="card">
-    <div class="section-head"><h2>Remboursées</h2><span class="hint">${fcfa(done.reduce((s, l) => s + l.amount, 0))}</span></div>
+    <div class="section-head"><h2>${T.doneTitle}</h2><span class="hint">${fcfa(done.reduce((s, l) => s + l.amount, 0))}</span></div>
     <ul class="list done-loans">${done.map(row).join('')}</ul>
   </section>` : ''}`;
 }
 
-/* Formulaire d'un prêt */
+/* Formulaire d'un prêt ou d'une dette */
 
 const loanDlg = $('loanDialog');
 let loanId = null;
 function openLoanForm(id) {
   loanId = id;
-  const l = id ? state.loans.find(x => x.id === id) : null;
-  $('loanTitle').textContent = l ? 'Modifier le prêt' : 'Nouveau prêt';
+  const T = LT();
+  const l = id ? state[loanKind].find(x => x.id === id) : null;
+  $('loanTitle').textContent = l ? T.formEdit : T.formNew;
+  $('lPersonLabel').textContent = T.who;
+  $('lAmountLabel').textContent = T.amount;
+  $('lDateLabel').textContent = T.date;
+  $('lNote').placeholder = loanKind === 'debts' ? 'Ex. achat à crédit, prêt pour le loyer' : 'Ex. pour la scolarité';
   $('lPerson').value = l ? l.person : '';
   $('lAmount').value = l ? l.amount : '';
   $('lDate').value = l ? l.date || '' : todayStr();
@@ -1221,13 +1271,13 @@ $('loanForm').addEventListener('submit', ev => {
   const date = $('lDate').value, due = $('lDue').value;
   if (!person) return fail('Indiquez le nom de la personne.');
   if (!(amount > 0)) return fail('Indiquez un montant supérieur à 0.');
-  if (!date) return fail('Indiquez la date du prêt.');
-  if (due && due < date) return fail("L'échéance ne peut pas être avant la date du prêt.");
-  const l = loanId && state.loans.find(x => x.id === loanId);
-  if (l && amount < loanPaid(l)) return fail(`Cette personne a déjà remboursé ${fcfa(loanPaid(l))} : le montant ne peut pas être inférieur.`);
+  if (!date) return fail('Indiquez la date.');
+  if (due && due < date) return fail("L'échéance ne peut pas être avant la date de départ.");
+  const l = loanId && state[loanKind].find(x => x.id === loanId);
+  if (l && amount < loanPaid(l)) return fail(`${fcfa(loanPaid(l))} ont déjà été payés : le montant ne peut pas être inférieur.`);
   const fields = { person, amount, date, due: due || null, note: $('lNote').value.trim() };
   if (l) Object.assign(l, fields);
-  else state.loans.push({ id: uid(), ...fields, payments: [] });
+  else state[loanKind].push({ id: uid(), ...fields, payments: [] });
   save();
   loanDlg.close();
   render();
@@ -1236,38 +1286,42 @@ $('loanForm').addEventListener('submit', ev => {
 $('lCancel').addEventListener('click', () => { loanDlg.close(); if (loanId) openLoan(loanId); });
 loanDlg.addEventListener('click', ev => { if (ev.target === loanDlg) loanDlg.close(); });
 
-/* Fiche d'une créance : remboursements */
+/* Fiche d'une créance ou d'une dette : paiements */
 
 const detailDlg = $('loanDetail');
 function openLoan(id) {
-  const l = state.loans.find(x => x.id === id);
+  const l = state[loanKind].find(x => x.id === id);
   if (!l) return;
   loanId = id;
+  const T = LT();
   const left = loanLeft(l), paid = loanPaid(l);
   const due = dueInfo(l);
   const pays = [...l.payments].sort((a, b) => b.date.localeCompare(a.date)).map(p => `
-    <li><span>${esc(fmtDate(p.date))}</span><b>${num(p.amount)}</b>
-      <button type="button" class="x" data-pay="${p.id}" aria-label="Supprimer ce remboursement">✕</button></li>`).join('');
+    <li><span>${esc(fmtDate(p.date))}${p.expenseId ? ' · déduit du solde' : ''}</span><b>${num(p.amount)}</b>
+      <button type="button" class="x" data-pay="${p.id}" aria-label="Supprimer ce paiement">✕</button></li>`).join('');
   $('loanDetailBody').innerHTML = `
     <h2>${esc(l.person)}</h2>
     <div class="stats detail-stats">
-      <div class="stat"><span>Prêté</span><b>${num(l.amount)}</b></div>
-      <div class="stat"><span>Remboursé</span><b>${num(paid)}</b></div>
-      <div class="stat ${left > 0 && due.late ? 'bad' : ''}"><span>Reste dû</span><b>${num(left)}</b></div>
+      <div class="stat"><span>${T.lent}</span><b>${num(l.amount)}</b></div>
+      <div class="stat"><span>${T.paid}</span><b>${num(paid)}</b></div>
+      <div class="stat ${left > 0 && due.late ? 'bad' : ''}"><span>${T.left}</span><b>${num(left)}</b></div>
     </div>
-    <p class="meta">Prêté le ${esc(fmtDate(l.date))}. ${left === 0 ? 'Entièrement remboursé.' : (due.late ? '⚠️ ' : '') + esc(due.text) + '.'}</p>
+    <p class="meta">${T.startedOn} ${esc(fmtDate(l.date))}. ${left === 0 ? T.allPaid : (due.late ? '⚠️ ' : '') + esc(due.text) + '.'}</p>
     ${l.note ? `<p class="meta">${esc(l.note)}</p>` : ''}
     ${left > 0 ? `
     <form id="payForm" novalidate>
-      <div class="field-title">Enregistrer un remboursement</div>
+      <div class="field-title">${T.payTitle}</div>
       <div class="pay-line">
-        <input id="pAmount" type="text" inputmode="numeric" autocomplete="off" value="${left}" aria-label="Montant reçu (FCFA)">
-        <input id="pDate" type="date" value="${todayStr()}" aria-label="Date du remboursement">
+        <input id="pAmount" type="text" inputmode="numeric" autocomplete="off" value="${left}" aria-label="Montant (FCFA)">
+        <input id="pDate" type="date" value="${todayStr()}" aria-label="Date du paiement">
       </div>
+      ${loanKind === 'debts' ? `
+      <label class="check-line"><input id="pDeduct" type="checkbox" checked>
+        <span>Déduire aussi de mon solde du mois</span></label>` : ''}
       <p class="error" id="pError" hidden></p>
-      <button type="submit" class="btn primary block">Enregistrer le remboursement</button>
+      <button type="submit" class="btn primary block">${T.payBtn}</button>
     </form>` : ''}
-    ${pays ? `<div class="field-title pays-title">Remboursements reçus</div><ul class="pays">${pays}</ul>` : ''}
+    ${pays ? `<div class="field-title pays-title">${T.paysTitle}</div><ul class="pays">${pays}</ul>` : ''}
     <div class="actions">
       <button type="button" class="btn danger" data-loan="delete">Supprimer</button>
       <span class="spacer"></span>
@@ -1279,27 +1333,42 @@ function openLoan(id) {
 }
 detailDlg.addEventListener('submit', ev => {
   ev.preventDefault();
-  const l = state.loans.find(x => x.id === loanId);
+  const debt = loanKind === 'debts';
+  const l = state[loanKind].find(x => x.id === loanId);
   const amount = parseAmount($('pAmount').value);
   const date = $('pDate').value;
   const fail = msg => { $('pError').textContent = msg; $('pError').hidden = false; };
-  if (!(amount > 0)) return fail('Indiquez le montant reçu.');
-  if (amount > loanLeft(l)) return fail(`Il ne reste que ${fcfa(loanLeft(l))} à rembourser.`);
-  if (!date) return fail('Indiquez la date du remboursement.');
-  l.payments.push({ id: uid(), amount, date });
+  if (!(amount > 0)) return fail('Indiquez le montant.');
+  if (amount > loanLeft(l)) return fail(`Il ne reste que ${fcfa(loanLeft(l))} ${LT().tooMuch}.`);
+  if (!date) return fail('Indiquez la date.');
+  const pay = { id: uid(), amount, date };
+  // Un paiement de dette est aussi une sortie d'argent : il devient une dépense du mois.
+  if (debt && $('pDeduct').checked) {
+    pay.expenseId = uid();
+    month(date.slice(0, 7), true).expenses.push(
+      { id: pay.expenseId, category: 'dette', amount, date, label: `Dette : ${l.person}` });
+  }
+  l.payments.push(pay);
   save();
   render();
   const left = loanLeft(l);
-  toast(left === 0 ? `${l.person} a tout remboursé.` : `${fcfa(amount)} reçus. ${l.person} vous doit encore ${fcfa(left)}.`);
+  if (debt) {
+    toast(left === 0 ? `Vous avez payé ${fcfa(amount)}. Votre dette envers ${l.person} est soldée.`
+      : `Vous avez payé ${fcfa(amount)}. Il vous reste ${fcfa(left)} à payer à ${l.person}.`);
+  } else {
+    toast(left === 0 ? `${l.person} a tout remboursé.` : `${fcfa(amount)} reçus. ${l.person} vous doit encore ${fcfa(left)}.`);
+  }
   if (left === 0) detailDlg.close(); else openLoan(l.id);
 });
 detailDlg.addEventListener('click', ev => {
   if (ev.target === detailDlg) return detailDlg.close();
-  const l = state.loans.find(x => x.id === loanId);
+  const l = state[loanKind].find(x => x.id === loanId);
   const pay = ev.target.closest('[data-pay]');
   if (pay) {
-    if (!confirm('Supprimer ce remboursement ?')) return;
-    l.payments = l.payments.filter(p => p.id !== pay.dataset.pay);
+    const p = l.payments.find(x => x.id === pay.dataset.pay);
+    if (!confirm(p.expenseId ? 'Supprimer ce paiement ? La dépense correspondante sera aussi retirée.' : 'Supprimer ce paiement ?')) return;
+    dropExpenses([p.expenseId]);
+    l.payments = l.payments.filter(x => x !== p);
     save(); render(); return openLoan(l.id);
   }
   const b = ev.target.closest('[data-loan]');
@@ -1307,16 +1376,19 @@ detailDlg.addEventListener('click', ev => {
   const a = b.dataset.loan;
   if (a === 'close') return detailDlg.close();
   if (a === 'edit') { detailDlg.close(); return openLoanForm(l.id); }
-  if (a === 'delete' && confirm(`Supprimer le prêt à ${l.person} et ses remboursements ?`)) {
-    state.loans = state.loans.filter(x => x.id !== l.id);
+  if (a === 'delete' && confirm(`${LT().del} ${l.person}, avec ses paiements ?`)) {
+    dropExpenses(l.payments.map(p => p.expenseId));
+    state[loanKind] = state[loanKind].filter(x => x.id !== l.id);
     save(); detailDlg.close(); render();
   }
 });
 app.addEventListener('click', ev => {
   const el = ev.target.closest('[data-act]');
   if (!el) return;
-  if (el.dataset.act === 'add-loan') openLoanForm(null);
-  else if (el.dataset.act === 'open-loan') openLoan(el.dataset.id);
+  const act = el.dataset.act;
+  if (act === 'add-loan') openLoanForm(null);
+  else if (act === 'open-loan') openLoan(el.dataset.id);
+  else if (act === 'loan-kind') { loanKind = el.dataset.kind; render(); }
 });
 
 /* ---------- Divers ---------- */
