@@ -6,6 +6,8 @@ Application web personnelle (PWA) pour suivre et planifier son budget mensuel en
 - Planification à l'avance : on prépare décembre dès novembre.
 - Une dépense cochée est déduite immédiatement du reste disponible ; le montant réellement payé peut être ajusté.
 - Dépenses imprévues, copie du plan du mois précédent, report du reste.
+- Alertes : seuil de dépenses réglable, plafond mensuel, catégorie dépassée, mois plus dépensier que d'habitude.
+- Tableau de bord : courbe des dépenses sur l'année choisie avec le pic, et répartition par catégorie.
 - Fonctionne hors connexion. Les données restent sur le téléphone (stockage local du navigateur) ; le menu ⋮ permet d'exporter et d'importer une sauvegarde.
 
 ## Installation sur Android

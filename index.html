@@ -67,6 +67,7 @@
   <div class="menu">
     <button data-menu="copy">📋 Copier le plan du mois précédent</button>
     <button data-menu="carry">↪️ Reporter le reste du mois précédent</button>
+    <button data-menu="alerts">🔔 Régler les alertes</button>
     <button data-menu="export">💾 Exporter une sauvegarde</button>
     <button data-menu="import">📂 Importer une sauvegarde</button>
     <button data-menu="clear" class="danger-text">🗑️ Vider ce mois</button>
@@ -74,6 +75,29 @@
   </div>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
 </dialog>
+
+<dialog id="alertDialog" class="sheet">
+  <form id="alertForm" method="dialog" novalidate>
+    <h2>Régler les alertes</h2>
+    <label>M'alerter quand mes dépenses atteignent ce pourcentage de mes entrées (%)
+      <input id="aPct" type="text" inputmode="numeric" autocomplete="off">
+    </label>
+    <label>Plafond de dépenses par mois, en FCFA (facultatif)
+      <input id="aCap" type="text" inputmode="numeric" autocomplete="off" placeholder="Aucun plafond">
+    </label>
+    <p class="error" id="aError" hidden></p>
+    <div class="actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="aCancel">Annuler</button>
+      <button type="submit" class="btn primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<nav class="tabs" aria-label="Sections">
+  <button data-view="budget" aria-current="page"><span aria-hidden="true">📋</span>Budget</button>
+  <button data-view="stats"><span aria-hidden="true">📊</span>Tableau de bord</button>
+</nav>
 
 <div id="toast" role="status" aria-live="polite"></div>
 

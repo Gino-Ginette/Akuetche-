@@ -13,6 +13,7 @@ const EXPENSE_CATS = [
   { id: 'education', icon: '🎓', label: 'Éducation', h: 260 },
   { id: 'famille', icon: '👪', label: 'Aide familiale', h: 320 },
   { id: 'habillement', icon: '👗', label: 'Habillement', h: 290 },
+  { id: 'beaute', icon: '💄', label: 'Beauté', h: 305 },
   { id: 'loisirs', icon: '🎉', label: 'Loisirs', h: 15 },
   { id: 'vacances', icon: '🏖️', label: 'Vacances', h: 190 },
   { id: 'tontine', icon: '🤝', label: 'Tontine', h: 140 },
@@ -36,15 +37,22 @@ const ICON_CHOICES = ['🛒', '🍽️', '☕', '⛽', '🏍️', '🚌', '✈�
 /* ---------- Données ---------- */
 
 const STORAGE_KEY = 'mon-budget-v1';
+// warnPct : seuil d'alerte en % ; cap : plafond mensuel de dépenses en FCFA (facultatif).
+const DEFAULT_SETTINGS = { warnPct: 80, cap: null };
 
 let state = load();
 let current = ymOf(new Date());
+let view = 'budget';              // 'budget' | 'stats'
+let statsYear = new Date().getFullYear();
+let statsCat = 'all';             // filtre de la courbe
+let statsPeriod = 'year';         // 'year' ou 'AAAA-MM' pour la répartition
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (s && typeof s.months === 'object' && s.months) {
       if (!Array.isArray(s.cats)) s.cats = [];
+      s.settings = { ...DEFAULT_SETTINGS, ...(s.settings || {}) };
       // Entrées créées avant l'arrivée des catégories : on déduit la catégorie du libellé.
       for (const m of Object.values(s.months)) {
         for (const i of m.incomes || []) {
@@ -56,7 +64,7 @@ function load() {
       return s;
     }
   } catch (e) { /* données absentes ou illisibles */ }
-  return { version: 1, months: {}, cats: [] };
+  return { version: 1, months: {}, cats: [], settings: { ...DEFAULT_SETTINGS } };
 }
 
 function save() {
@@ -134,6 +142,85 @@ function totals(m) {
   return { income, planned, spent, pending, left: income - spent };
 }
 
+/* ---------- Alertes ---------- */
+
+// Renvoie les alertes du mois, les plus graves d'abord.
+function alertsFor(ym) {
+  const m = state.months[ym];
+  if (!m) return [];
+  const t = totals(m);
+  const { warnPct, cap } = state.settings;
+  const out = [];
+  const add = (key, level, title, detail) => out.push({ key, level, title, detail });
+
+  if (t.spent > t.income) {
+    add('over-income', 'critical', 'Vous avez dépassé votre budget',
+      `Vos dépenses (${fcfa(t.spent)}) dépassent vos entrées de ${fcfa(t.spent - t.income)}.`);
+  } else if (t.income > 0 && t.spent >= t.income * warnPct / 100) {
+    add('near-income', 'warning', 'Vous approchez de la limite de votre budget',
+      `${Math.round(t.spent / t.income * 100)} % de vos entrées sont dépensés. Il vous reste ${fcfa(t.left)}.`);
+  }
+  if (cap > 0) {
+    if (t.spent > cap) {
+      add('over-cap', 'critical', 'Plafond de dépenses dépassé',
+        `Vous avez dépensé ${fcfa(t.spent)} pour un plafond de ${fcfa(cap)} : ${fcfa(t.spent - cap)} de trop.`);
+    } else if (t.spent >= cap * warnPct / 100) {
+      add('near-cap', 'warning', 'Vous approchez de votre plafond',
+        `${Math.round(t.spent / cap * 100)} % du plafond de ${fcfa(cap)} sont atteints. Marge restante : ${fcfa(cap - t.spent)}.`);
+    }
+  }
+  if (t.income > 0 && t.planned > t.income) {
+    add('plan-over', 'warning', 'Votre plan dépasse vos entrées',
+      `Vous avez planifié ${fcfa(t.planned)} pour ${fcfa(t.income)} d'entrées : ${fcfa(t.planned - t.income)} de trop.`);
+  }
+  // Catégories où l'on a payé plus que prévu.
+  const by = byCategory(m.expenses);
+  for (const c of cats('expense')) {
+    const b = by[c.id];
+    if (b && b.planned > 0 && b.spent > b.planned) {
+      add('cat-' + c.id, 'warning', `${c.label} : prévision dépassée`,
+        `${fcfa(b.spent)} dépensés pour ${fcfa(b.planned)} prévus (+${fcfa(b.spent - b.planned)}).`);
+    }
+  }
+  // Mois plus dépensier que d'habitude : comparaison avec les 6 mois précédents.
+  const past = [];
+  for (let i = 1; i <= 6; i++) {
+    const pm = state.months[shift(ym, -i)];
+    if (pm) past.push(totals(pm).spent);
+  }
+  if (past.length >= 2) {
+    const avg = past.reduce((a, b) => a + b, 0) / past.length;
+    if (avg > 0 && t.spent > avg * 1.2) {
+      add('peak', 'warning', "Vous dépensez plus que d'habitude",
+        `${fcfa(t.spent)} ce mois-ci contre ${fcfa(Math.round(avg))} en moyenne sur les ${past.length} mois précédents.`);
+    }
+  }
+  return out.sort((a, b) => (a.level === 'critical' ? 0 : 1) - (b.level === 'critical' ? 0 : 1));
+}
+
+function byCategory(expenses) {
+  const by = {};
+  for (const e of expenses) {
+    const id = catOf('expense', e.category).id;
+    by[id] = by[id] || { planned: 0, spent: 0 };
+    by[id].planned += plannedAmount(e);
+    by[id].spent += paid(e);
+  }
+  return by;
+}
+
+function alertsHtml(list) {
+  if (!list.length) return '';
+  return `
+  <section class="card alerts" aria-label="Alertes">
+    ${list.map(a => `
+    <div class="alert ${a.level}">
+      <span class="alert-ico" aria-hidden="true">${a.level === 'critical' ? '⛔' : '⚠️'}</span>
+      <div><b>${esc(a.title)}</b><p>${esc(a.detail)}</p></div>
+    </div>`).join('')}
+  </section>`;
+}
+
 /* ---------- Affichage ---------- */
 
 const $ = id => document.getElementById(id);
@@ -141,11 +228,14 @@ const app = $('app');
 const ico = c => `<span class="ico" style="--h:${c.h}" aria-hidden="true">${esc(c.icon)}</span>`;
 
 function render() {
+  document.querySelectorAll('.tabs button').forEach(b =>
+    b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'));
+  if (view === 'stats') return renderStats();
   $('monthLabel').textContent = monthName(current);
   const m = month(current);
   const t = totals(m);
   const isEmpty = !m.incomes.length && !m.expenses.length;
-  let html = summaryHtml(t);
+  let html = summaryHtml(t) + alertsHtml(alertsFor(current));
   if (isEmpty) html += starterHtml();
   html += incomesHtml(m) + expensesHtml(m);
   if (m.expenses.length) html += categoriesHtml(m);
@@ -248,13 +338,7 @@ function expensesHtml(m) {
 }
 
 function categoriesHtml(m) {
-  const by = {};
-  for (const e of m.expenses) {
-    const id = catOf('expense', e.category).id;
-    by[id] = by[id] || { planned: 0, spent: 0 };
-    by[id].planned += plannedAmount(e);
-    by[id].spent += paid(e);
-  }
+  const by = byCategory(m.expenses);
   const rows = cats('expense').filter(c => by[c.id]).map(c => {
     const { planned, spent } = by[c.id];
     const over = spent > planned;
@@ -455,10 +539,13 @@ app.addEventListener('click', ev => {
 function toggle(id) {
   const e = month(current).expenses.find(x => x.id === id);
   if (!e) return;
+  const before = new Set(alertsFor(current).map(a => a.key));
   e.done = !e.done;
   if (!e.done) e.actual = null;
   save();
   render();
+  const fresh = alertsFor(current).find(a => !before.has(a.key));
+  if (fresh) return toast((fresh.level === 'critical' ? '⛔ ' : '⚠️ ') + fresh.title);
   toast(e.done
     ? `${fcfa(e.amount)} déduits. Touchez la ligne si le montant payé est différent.`
     : 'Dépense décochée.');
@@ -501,9 +588,26 @@ function carryPrevious() {
 
 /* ---------- Navigation ---------- */
 
-$('prev').addEventListener('click', () => { current = shift(current, -1); render(); });
-$('next').addEventListener('click', () => { current = shift(current, 1); render(); });
-$('monthLabel').addEventListener('click', () => { current = ymOf(new Date()); render(); });
+function step(delta) {
+  if (view === 'stats') { statsYear += delta; statsPeriod = 'year'; statsCat = 'all'; }
+  else current = shift(current, delta);
+  render();
+}
+$('prev').addEventListener('click', () => step(-1));
+$('next').addEventListener('click', () => step(1));
+$('monthLabel').addEventListener('click', () => {
+  if (view === 'stats') { statsYear = new Date().getFullYear(); statsPeriod = 'year'; }
+  else current = ymOf(new Date());
+  render();
+});
+document.querySelector('.tabs').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-view]');
+  if (!b || b.dataset.view === view) return;
+  view = b.dataset.view;
+  if (view === 'stats') { statsYear = Number(current.slice(0, 4)); statsPeriod = 'year'; statsCat = 'all'; }
+  render();
+  window.scrollTo(0, 0);
+});
 
 /* ---------- Menu, export, import ---------- */
 
@@ -520,6 +624,7 @@ menu.addEventListener('click', ev => {
   else if (a === 'carry') carryPrevious();
   else if (a === 'export') exportData();
   else if (a === 'clear') clearMonth();
+  else if (a === 'alerts') openAlertSettings();
 });
 dlg.addEventListener('click', ev => { if (ev.target === dlg) dlg.close(); });
 
@@ -558,7 +663,7 @@ $('importFile').addEventListener('change', async ev => {
   const importedCats = (Array.isArray(data.cats) ? data.cats : []).filter(c =>
     c && typeof c.id === 'string' && typeof c.label === 'string' && typeof c.icon === 'string' &&
     (c.kind === 'income' || c.kind === 'expense'));
-  state = { version: 1, months: data.months, cats: importedCats };
+  state = { version: 1, months: data.months, cats: importedCats, settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) } };
   save();
   render();
   toast('Sauvegarde importée.');
@@ -571,6 +676,237 @@ function clearMonth() {
   save();
   render();
 }
+
+/* ---------- Réglage des alertes ---------- */
+
+const alertDlg = $('alertDialog');
+function openAlertSettings() {
+  $('aPct').value = state.settings.warnPct;
+  $('aCap').value = state.settings.cap || '';
+  $('aError').hidden = true;
+  alertDlg.showModal();
+}
+$('alertForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const pct = parseAmount($('aPct').value);
+  if (!(pct >= 1 && pct <= 100)) {
+    $('aError').textContent = 'Le seuil doit être compris entre 1 et 100 %.';
+    $('aError').hidden = false;
+    return;
+  }
+  const cap = parseAmount($('aCap').value);
+  state.settings = { warnPct: pct, cap: cap > 0 ? cap : null };
+  save();
+  alertDlg.close();
+  render();
+  toast('Alertes mises à jour.');
+});
+$('aCancel').addEventListener('click', () => alertDlg.close());
+alertDlg.addEventListener('click', ev => { if (ev.target === alertDlg) alertDlg.close(); });
+
+/* ---------- Tableau de bord ---------- */
+
+const MONTH_LETTERS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+const ymAt = (year, i) => year + '-' + String(i + 1).padStart(2, '0');
+let chart = null; // géométrie de la courbe affichée, pour l'infobulle
+
+function compact(n) {
+  const f = (v, d) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
+  if (n >= 1e6) return f(n / 1e6, 1) + ' M';
+  if (n >= 1e3) return f(n / 1e3, n < 1e4 ? 1 : 0) + ' k';
+  return String(n);
+}
+function niceMax(v) {
+  if (v <= 0) return 1000;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  return [1, 2, 2.5, 5, 10].map(k => k * p).find(c => c >= v);
+}
+
+// Dépenses de chaque mois de l'année ; null pour un mois sans aucune donnée.
+function yearSeries(year, catId) {
+  return MONTH_LETTERS.map((_, i) => {
+    const m = state.months[ymAt(year, i)];
+    if (!m) return null;
+    return m.expenses.reduce((s, e) =>
+      s + (catId === 'all' || catOf('expense', e.category).id === catId ? paid(e) : 0), 0);
+  });
+}
+
+function renderStats() {
+  $('monthLabel').textContent = 'Année ' + statsYear;
+  const months = MONTH_LETTERS.map((_, i) => state.months[ymAt(statsYear, i)]).filter(Boolean);
+  if (!months.length) {
+    chart = null;
+    app.innerHTML = `
+      <section class="card starter"><p>Aucune donnée pour ${statsYear}. Utilisez les flèches en haut pour changer d'année.</p></section>`;
+    return;
+  }
+  const income = months.reduce((s, m) => s + totals(m).income, 0);
+  const spent = months.reduce((s, m) => s + totals(m).spent, 0);
+  app.innerHTML = `
+  <section class="summary">
+    <div class="label">Dépensé en ${statsYear}</div>
+    <div class="big">${num(spent)} <small>FCFA</small></div>
+    <div class="stats">
+      <div class="stat"><span>Entrées</span><b>${num(income)}</b></div>
+      <div class="stat"><span>Moyenne / mois</span><b>${num(Math.round(spent / months.length))}</b></div>
+      <div class="stat"><span>Reste</span><b>${num(income - spent)}</b></div>
+    </div>
+  </section>
+  ${trendHtml()}
+  ${breakdownHtml()}`;
+}
+
+function trendHtml() {
+  const used = cats('expense').filter(c =>
+    MONTH_LETTERS.some((_, i) => (state.months[ymAt(statsYear, i)]?.expenses || [])
+      .some(e => catOf('expense', e.category).id === c.id)));
+  if (statsCat !== 'all' && !used.some(c => c.id === statsCat)) statsCat = 'all';
+  const vals = yearSeries(statsYear, statsCat);
+  const known = vals.filter(v => v != null);
+  const avg = known.reduce((a, b) => a + b, 0) / known.length;
+  const max = Math.max(...known);
+  const peak = max > 0 ? vals.indexOf(max) : -1;
+
+  let insight = 'Aucune dépense payée sur cette période.';
+  if (peak >= 0) {
+    insight = `Pic en ${monthName(ymAt(statsYear, peak), false)} : ${fcfa(max)}.`;
+    if (known.length >= 2 && max > avg) {
+      insight += ` C'est ${Math.round((max / avg - 1) * 100)} % de plus que votre moyenne mensuelle (${fcfa(Math.round(avg))}).`;
+    }
+  }
+  const options = [`<option value="all">Toutes les catégories</option>`]
+    .concat(used.map(c => `<option value="${esc(c.id)}" ${c.id === statsCat ? 'selected' : ''}>${esc(c.icon)} ${esc(c.label)}</option>`));
+  const rows = vals.map((v, i) => v == null ? '' :
+    `<tr><td>${esc(monthName(ymAt(statsYear, i), false))}</td><td>${num(v)}</td></tr>`).join('');
+  return `
+  <section class="card">
+    <div class="section-head"><h2>Évolution des dépenses</h2></div>
+    <select class="filter" id="statsCat" aria-label="Catégorie affichée">${options.join('')}</select>
+    <div class="chart-wrap" id="trend">${lineChartSvg(vals, peak, known.length >= 2 ? avg : null)}<div class="chart-tip" hidden></div></div>
+    <p class="insight">${esc(insight)}</p>
+    <details class="table-view"><summary>Voir les chiffres</summary>
+      <table><thead><tr><th>Mois</th><th>Dépensé (FCFA)</th></tr></thead><tbody>${rows}</tbody></table>
+    </details>
+  </section>`;
+}
+
+function lineChartSvg(vals, peak, avg) {
+  const W = Math.max(280, Math.min(app.clientWidth, 560) - 32);
+  const H = 200, pl = 40, pr = 14, pt = 30, pb = 26;
+  const top = niceMax(Math.max(0, ...vals.filter(v => v != null)));
+  const x = i => pl + (W - pl - pr) * i / 11;
+  const y = v => pt + (H - pt - pb) * (1 - v / top);
+  chart = { vals, x, y, W, H, pt, pb, year: statsYear };
+
+  let g = '';
+  for (const tick of [0, top / 2, top]) {
+    g += `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${y(tick)}" y2="${y(tick)}"/>
+      <text class="axis" x="${pl - 6}" y="${y(tick) + 4}" text-anchor="end">${compact(tick)}</text>`;
+  }
+  g += MONTH_LETTERS.map((l, i) =>
+    `<text class="axis" x="${x(i)}" y="${H - 6}" text-anchor="middle">${l}</text>`).join('');
+  if (avg != null && avg > 0) {
+    g += `<line class="avg" x1="${pl}" x2="${W - pr}" y1="${y(avg)}" y2="${y(avg)}"/>`;
+  }
+  // La courbe s'interrompt sur les mois sans donnée.
+  let d = '', pen = false;
+  vals.forEach((v, i) => {
+    if (v == null) { pen = false; return; }
+    d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
+    pen = true;
+  });
+  g += `<path class="line" d="${d}"/>`;
+  g += `<line class="cross" id="cross" y1="${pt}" y2="${H - pb}" x1="0" x2="0" visibility="hidden"/>`;
+  g += vals.map((v, i) => v == null ? '' :
+    `<circle class="dot ${i === peak ? 'peak' : ''}" cx="${x(i)}" cy="${y(v)}" r="${i === peak ? 6 : 4}"/>`).join('');
+  if (peak >= 0) {
+    const anchor = peak <= 1 ? 'start' : peak >= 10 ? 'end' : 'middle';
+    const dx = anchor === 'start' ? -6 : anchor === 'end' ? 6 : 0;
+    g += `<text class="peak-label" x="${x(peak) + dx}" y="${y(vals[peak]) - 12}" text-anchor="${anchor}">Pic : ${compact(vals[peak])}</text>`;
+  }
+  const legend = avg != null && avg > 0
+    ? `<div class="legend"><span class="key line-key"></span>Dépenses du mois<span class="key avg-key"></span>Moyenne mensuelle</div>` : '';
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img"
+    aria-label="Courbe des dépenses par mois en ${statsYear}">${g}</svg>${legend}`;
+}
+
+function breakdownHtml() {
+  const withData = MONTH_LETTERS.map((_, i) => ymAt(statsYear, i)).filter(ym => state.months[ym]);
+  if (statsPeriod !== 'year' && !withData.includes(statsPeriod)) statsPeriod = 'year';
+  const expenses = (statsPeriod === 'year' ? withData : [statsPeriod]).flatMap(ym => state.months[ym].expenses);
+  const by = byCategory(expenses);
+  const list = cats('expense').filter(c => by[c.id] && by[c.id].spent > 0)
+    .sort((a, b) => by[b.id].spent - by[a.id].spent);
+  const total = list.reduce((s, c) => s + by[c.id].spent, 0);
+  const top = list.length ? by[list[0].id].spent : 1;
+  const rows = list.map(c => {
+    const v = by[c.id].spent;
+    return `
+    <div class="cat">
+      ${ico(c)}
+      <div class="cat-main">
+        <div class="cat-top"><span>${esc(c.label)}</span><span><b>${num(v)}</b> · ${Math.round(v / total * 100)} %</span></div>
+        <div class="bar chart-bar"><i style="width:${Math.max(2, v / top * 100)}%"></i></div>
+      </div>
+    </div>`;
+  }).join('');
+  const options = [`<option value="year">Toute l'année ${statsYear}</option>`].concat(withData.map(ym =>
+    `<option value="${ym}" ${ym === statsPeriod ? 'selected' : ''}>${esc(monthName(ym))}</option>`));
+  let insight = '';
+  if (list.length) {
+    const c = list[0];
+    insight = `<p class="insight">Votre plus gros poste est « ${esc(c.label)} » : ${Math.round(by[c.id].spent / total * 100)} % de vos dépenses${list.length > 1 ? `, devant « ${esc(list[1].label)} »` : ''}.</p>`;
+  }
+  return `
+  <section class="card">
+    <div class="section-head"><h2>Où va mon argent</h2><span class="hint">FCFA · part du total</span></div>
+    <select class="filter" id="statsPeriod" aria-label="Période">${options.join('')}</select>
+    ${rows || '<p class="empty">Aucune dépense payée sur cette période.</p>'}
+    ${insight}
+  </section>`;
+}
+
+app.addEventListener('change', ev => {
+  if (ev.target.id === 'statsCat') { statsCat = ev.target.value; render(); }
+  else if (ev.target.id === 'statsPeriod') { statsPeriod = ev.target.value; render(); }
+});
+
+// Infobulle de la courbe : le mois le plus proche du doigt ou du pointeur.
+function showTip(ev) {
+  const wrap = ev.target.closest('#trend');
+  if (!wrap || !chart) return;
+  const svg = wrap.querySelector('svg');
+  const box = svg.getBoundingClientRect();
+  const px = (ev.clientX - box.left) * chart.W / box.width;
+  let best = -1;
+  chart.vals.forEach((v, i) => {
+    if (v != null && (best < 0 || Math.abs(chart.x(i) - px) < Math.abs(chart.x(best) - px))) best = i;
+  });
+  if (best < 0) return;
+  const cx = chart.x(best);
+  const cross = svg.querySelector('#cross');
+  cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+  const tip = wrap.querySelector('.chart-tip');
+  tip.innerHTML = `<b>${num(chart.vals[best])} FCFA</b><span>${esc(monthName(ymAt(chart.year, best)))}</span>`;
+  tip.hidden = false;
+  const left = Math.min(Math.max(cx * box.width / chart.W - tip.offsetWidth / 2, 0), box.width - tip.offsetWidth);
+  tip.style.left = left + 'px';
+}
+function hideTip() {
+  const wrap = document.getElementById('trend');
+  if (!wrap) return;
+  wrap.querySelector('.chart-tip').hidden = true;
+  wrap.querySelector('#cross')?.setAttribute('visibility', 'hidden');
+}
+app.addEventListener('pointermove', showTip);
+app.addEventListener('pointerdown', ev => (ev.target.closest('#trend') ? showTip(ev) : hideTip()));
+app.addEventListener('pointerleave', hideTip);
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (view === 'stats') render(); }, 150);
+});
 
 /* ---------- Divers ---------- */
 
