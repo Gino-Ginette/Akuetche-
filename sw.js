@@ -1,5 +1,5 @@
 // Service worker : rend l'application utilisable hors connexion.
-const CACHE = 'mon-budget-v4';
+const CACHE = 'mon-budget-v5';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

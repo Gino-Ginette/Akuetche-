@@ -38,8 +38,10 @@ const ICON_CHOICES = ['🛒', '🍽️', '☕', '⛽', '🏍️', '🚌', '✈�
 /* ---------- Données ---------- */
 
 const STORAGE_KEY = 'mon-budget-v1';
-// warnPct : seuil d'alerte en % ; cap : plafond mensuel de dépenses en FCFA (facultatif).
-const DEFAULT_SETTINGS = { warnPct: 80, cap: null };
+// infoPct : première alerte en % ; warnPct : seuil d'alerte en % ; cap : plafond mensuel de dépenses en FCFA (facultatif).
+const DEFAULT_SETTINGS = { infoPct: 50, warnPct: 80, cap: null };
+const ALERT_ICON = { critical: '⛔', warning: '⚠️', info: 'ℹ️' };
+const ALERT_RANK = { critical: 0, warning: 1, info: 2 };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -193,7 +195,7 @@ function alertsFor(ym) {
   const m = state.months[ym];
   if (!m) return [];
   const t = totals(m);
-  const { warnPct, cap } = state.settings;
+  const { infoPct, warnPct, cap } = state.settings;
   const out = [];
   const add = (key, level, title, detail) => out.push({ key, level, title, detail });
 
@@ -202,7 +204,10 @@ function alertsFor(ym) {
       `Vos dépenses (${fcfa(t.spent)}) dépassent vos entrées de ${fcfa(t.spent - t.income)}.`);
   } else if (t.income > 0 && t.spent >= t.income * warnPct / 100) {
     add('near-income', 'warning', 'Vous approchez de la limite de votre budget',
-      `${Math.round(t.spent / t.income * 100)} % de vos entrées sont dépensés. Il vous reste ${fcfa(t.left)}.`);
+      `${Math.round(t.spent / t.income * 100)} % de vos entrées sont dépensés. Il vous reste ${fcfa(t.left)}.${paceText(ym, t.left)}`);
+  } else if (t.income > 0 && t.spent >= t.income * infoPct / 100) {
+    add('half-income', 'info', `Vous avez dépensé ${Math.round(t.spent / t.income * 100)} % de vos entrées`,
+      `Il vous reste ${fcfa(t.left)} sur ${fcfa(t.income)}.${paceText(ym, t.left)}`);
   }
   if (cap > 0) {
     if (t.spent > cap) {
@@ -241,7 +246,84 @@ function alertsFor(ym) {
         `${fcfa(t.spent)} ce mois-ci contre ${fcfa(Math.round(avg))} en moyenne sur les ${past.length} mois précédents.`);
     }
   }
-  return out.sort((a, b) => (a.level === 'critical' ? 0 : 1) - (b.level === 'critical' ? 0 : 1));
+  return out.sort((a, b) => ALERT_RANK[a.level] - ALERT_RANK[b.level]);
+}
+
+// Jours restants dans le mois en cours (aujourd'hui compris) ; null pour un autre mois.
+function daysLeftIn(ym) {
+  const now = new Date();
+  if (ym !== ymOf(now)) return null;
+  return new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate() + 1;
+}
+function paceText(ym, left) {
+  const days = daysLeftIn(ym);
+  if (!days || left <= 0) return '';
+  return ` Pour tenir les ${days} jours restants, cela fait environ ${fcfa(Math.floor(left / days))} par jour.`;
+}
+
+/* ---------- Conseils ---------- */
+
+const GENERAL_TIPS = [
+  "Payez-vous en premier : mettez l'épargne de côté dès que l'argent entre, pas avec ce qui reste à la fin du mois.",
+  "Notez chaque dépense le jour même, même les petites : ce sont elles qui font disparaître l'argent sans qu'on s'en rende compte.",
+  "Un repère simple : environ 50 % pour les besoins (logement, nourriture, transport), 30 % pour les envies et 20 % pour l'épargne.",
+  "Constituez peu à peu une réserve d'urgence équivalente à trois mois de dépenses, pour ne pas vous endetter au premier imprévu.",
+  "Avant un achat non prévu, attendez 48 heures : si l'envie est toujours là et que le budget le permet, achetez.",
+  "Préparez le plan du mois suivant avant de recevoir votre salaire : l'argent a ainsi une destination dès son arrivée.",
+  "Regroupez vos achats de nourriture en une ou deux fois par mois : acheter en gros coûte souvent moins cher qu'au détail.",
+  "Prévoyez toujours une ligne « imprévus » dans votre plan : il y en a chaque mois.",
+  "Comparez votre plan et vos dépenses réelles à la fin du mois, et ajustez les montants du mois suivant.",
+  "Fixez un objectif précis à votre épargne (un projet, un montant, une date) : on épargne mieux quand on sait pourquoi.",
+];
+
+// Conseils tirés des chiffres du mois, complétés par un conseil général du jour.
+function tipsFor(ym) {
+  const m = state.months[ym];
+  const tips = [];
+  if (m) {
+    const t = totals(m);
+    const days = daysLeftIn(ym);
+    if (t.income > 0 && !t.planned) {
+      tips.push("Commencez par l'onglet Planifier : répartissez vos entrées par catégorie avant de dépenser.");
+    }
+    if (t.income > 0 && t.planned > 0 && !t.by.epargne) {
+      tips.push(`Vous n'avez pas prévu d'épargne ce mois-ci. Même 10 % de vos entrées, soit ${fcfa(Math.round(t.income / 10))}, font une différence sur l'année.`);
+    }
+    const free = t.income - t.planned;
+    if (t.planned > 0 && free > 0) {
+      tips.push(`${fcfa(free)} ne sont affectés à aucune catégorie. Donnez-leur une destination (épargne, imprévus) pour qu'ils ne partent pas en petites dépenses.`);
+    }
+    const offPlan = cats('expense').filter(c => t.by[c.id] && !t.by[c.id].planned);
+    if (offPlan.length) {
+      const sum = offPlan.reduce((s, c) => s + t.by[c.id].spent, 0);
+      tips.push(`${fcfa(sum)} dépensés hors plan (${offPlan.map(c => c.label).join(', ')}). Ajoutez ces catégories à votre plan du mois prochain.`);
+    }
+    const top = cats('expense').filter(c => t.by[c.id] && t.by[c.id].planned > 0)
+      .sort((a, b) => t.by[b.id].planned - t.by[a.id].planned)[0];
+    if (top && t.income > 0 && t.by[top.id].planned >= t.income * 0.5) {
+      tips.push(`« ${top.label} » prend ${Math.round(t.by[top.id].planned / t.income * 100)} % de vos entrées. Quand un seul poste pèse autant, il reste peu de marge pour le reste : gardez une réserve pour les imprévus.`);
+    }
+    const flexible = t.left - Math.max(0, free);
+    if (days && t.pending > 0 && flexible > 0) {
+      tips.push(`Il reste ${fcfa(t.pending)} dans votre plan pour ${days} jours : environ ${fcfa(Math.floor(t.pending / days))} par jour.`);
+    }
+    if (days && m.expenses.length) {
+      const last = m.expenses.reduce((d, e) => (e.date > d ? e.date : d), '');
+      const gap = Math.round((new Date(todayStr()) - new Date(last)) / 864e5);
+      if (gap >= 3) tips.push(`Votre dernière dépense enregistrée date d'il y a ${gap} jours. Pensez à noter celles des derniers jours pour que le solde reste juste.`);
+    }
+  }
+  const out = tips.slice(0, 3);
+  out.push(GENERAL_TIPS[new Date().getDate() % GENERAL_TIPS.length]);
+  return out;
+}
+
+function tipsHtml(ym) {
+  return `
+  <section class="card">
+    <div class="section-head"><h2>Conseils</h2></div>
+    <ul class="tips">${tipsFor(ym).map(t => `<li><span aria-hidden="true">💡</span><p>${esc(t)}</p></li>`).join('')}</ul>
+  </section>`;
 }
 
 function alertsHtml(list) {
@@ -250,7 +332,7 @@ function alertsHtml(list) {
   <section class="card alerts" aria-label="Alertes">
     ${list.map(a => `
     <div class="alert ${a.level}">
-      <span class="alert-ico" aria-hidden="true">${a.level === 'critical' ? '⛔' : '⚠️'}</span>
+      <span class="alert-ico" aria-hidden="true">${ALERT_ICON[a.level]}</span>
       <div><b>${esc(a.title)}</b><p>${esc(a.detail)}</p></div>
     </div>`).join('')}
   </section>`;
@@ -288,7 +370,7 @@ function render() {
 function homeHtml(m, t) {
   return summaryHtml(t) + alertsHtml(alertsFor(current)) +
     `<button class="btn primary block big-add" data-act="add-expense">＋ Enregistrer une dépense</button>` +
-    incomesHtml(m) + trackingHtml(t);
+    incomesHtml(m) + trackingHtml(t) + tipsHtml(current);
 }
 
 function summaryHtml(t) {
@@ -604,7 +686,7 @@ $('itemForm').addEventListener('submit', ev => {
     render();
     // Message : nouvelle alerte s'il y en a une, sinon ce qu'il reste dans la catégorie.
     const fresh = ym === current && alertsFor(current).find(a => !before.has(a.key));
-    if (fresh) return toast((fresh.level === 'critical' ? '⛔ ' : '⚠️ ') + fresh.title);
+    if (fresh) return toast(ALERT_ICON[fresh.level] + ' ' + fresh.title);
     const b = totals(target).by[category];
     let msg = `${fcfa(amount)} déduits.`;
     if (ym !== current) msg += ` Dépense classée en ${monthName(ym)}.`;
@@ -782,6 +864,7 @@ function clearMonth() {
 
 const alertDlg = $('alertDialog');
 function openAlertSettings() {
+  $('aInfo').value = state.settings.infoPct;
   $('aPct').value = state.settings.warnPct;
   $('aCap').value = state.settings.cap || '';
   $('aError').hidden = true;
@@ -790,13 +873,14 @@ function openAlertSettings() {
 $('alertForm').addEventListener('submit', ev => {
   ev.preventDefault();
   const pct = parseAmount($('aPct').value);
-  if (!(pct >= 1 && pct <= 100)) {
-    $('aError').textContent = 'Le seuil doit être compris entre 1 et 100 %.';
+  const info = parseAmount($('aInfo').value);
+  if (!(pct >= 1 && pct <= 100) || !(info >= 1 && info <= 100)) {
+    $('aError').textContent = 'Les seuils doivent être compris entre 1 et 100 %.';
     $('aError').hidden = false;
     return;
   }
   const cap = parseAmount($('aCap').value);
-  state.settings = { warnPct: pct, cap: cap > 0 ? cap : null };
+  state.settings = { infoPct: info, warnPct: pct, cap: cap > 0 ? cap : null };
   save();
   alertDlg.close();
   render();

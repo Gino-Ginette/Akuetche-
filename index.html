@@ -73,7 +73,10 @@
 <dialog id="alertDialog" class="sheet">
   <form id="alertForm" method="dialog" novalidate>
     <h2>Régler les alertes</h2>
-    <label>M'alerter quand mes dépenses atteignent ce pourcentage de mes entrées (%)
+    <label>Première alerte, pour information, à ce pourcentage de mes entrées (%)
+      <input id="aInfo" type="text" inputmode="numeric" autocomplete="off">
+    </label>
+    <label>Alerte « limite proche » à ce pourcentage (%)
       <input id="aPct" type="text" inputmode="numeric" autocomplete="off">
     </label>
     <label>Plafond de dépenses par mois, en FCFA (facultatif)

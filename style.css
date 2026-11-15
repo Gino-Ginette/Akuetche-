@@ -11,6 +11,7 @@
   --warn: #b45309;
   --chart: #08907f;
   --warn-bg: #fdf1dc;
+  --info-bg: #e3eefb;
   --danger-bg: #fbe4e0;
   --radius: 16px;
 }
@@ -28,6 +29,7 @@
     --warn: #f0a04b;
     --chart: #1f9e92;
     --warn-bg: #3a2c14;
+    --info-bg: #1b2c40;
     --danger-bg: #40201c;
   }
 }
@@ -306,3 +308,8 @@ form input:focus, form select:focus { outline: 2px solid var(--accent); outline-
 .cat-top .st.over { color: var(--danger); font-weight: 700; }
 .cat-top .tag { margin: 0; }
 .tabs button { font-size: .72rem; line-height: 1.1; }
+
+.alert.info { background: var(--info-bg); }
+.tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.tips li { display: flex; gap: 10px; align-items: flex-start; }
+.tips p { margin: 0; font-size: .92rem; }
