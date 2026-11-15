@@ -40,18 +40,12 @@
         <button type="button" class="btn primary" id="ncAdd">Ajouter</button>
       </div>
     </div>
-    <label>Note (facultatif)
+    <label id="dateWrap">Date
+      <input id="fDate" type="date">
+    </label>
+    <label id="noteWrap">Note (facultatif)
       <input id="fLabel" type="text" autocomplete="off" maxlength="60">
     </label>
-    <div id="expenseFields">
-      <label class="check-line">
-        <input id="fDone" type="checkbox">
-        <span id="fDoneLabel">Déjà payée</span>
-      </label>
-      <label id="fActualWrap">Montant réellement payé (FCFA)
-        <input id="fActual" type="text" inputmode="numeric" autocomplete="off" placeholder="Identique au montant prévu">
-      </label>
-    </div>
     <p class="error" id="fError" hidden></p>
     <div class="actions">
       <button type="button" class="btn danger" id="fDelete">Supprimer</button>
@@ -95,7 +89,9 @@
 </dialog>
 
 <nav class="tabs" aria-label="Sections">
-  <button data-view="budget" aria-current="page"><span aria-hidden="true">📋</span>Budget</button>
+  <button data-view="home" aria-current="page"><span aria-hidden="true">🏠</span>Accueil</button>
+  <button data-view="plan"><span aria-hidden="true">🗓️</span>Planifier</button>
+  <button data-view="expenses"><span aria-hidden="true">🧾</span>Dépenses</button>
   <button data-view="stats"><span aria-hidden="true">📊</span>Tableau de bord</button>
 </nav>
 

@@ -197,7 +197,7 @@ dialog.sheet {
 dialog.sheet::backdrop { background: rgba(0,0,0,.45); }
 dialog h2 { margin: 0 0 12px; font-size: 1.15rem; }
 form label { display: block; font-size: .88rem; color: var(--muted); margin-bottom: 12px; }
-form input[type=text], form select {
+form input[type=text], form input[type=date], form select {
   display: block; width: 100%; margin-top: 4px; padding: 12px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text);
   font-size: 1.05rem;
@@ -283,3 +283,26 @@ form input:focus, form select:focus { outline: 2px solid var(--accent); outline-
 .table-view table { width: 100%; border-collapse: collapse; }
 .table-view th, .table-view td { text-align: left; padding: 6px 0; border-top: 1px solid var(--line); text-transform: capitalize; }
 .table-view th:last-child, .table-view td:last-child { text-align: right; font-variant-numeric: tabular-nums; text-transform: none; }
+
+/* Planification et dépenses par jour */
+[hidden] { display: none !important; }
+.big-add { min-height: 52px; font-size: 1.02rem; border-radius: 14px; }
+.plan-sum h2 { margin: 0 0 10px; font-size: 1.05rem; text-transform: none; }
+.plan-sum .stat { background: var(--bg); }
+.plan-sum .stat span { color: var(--muted); opacity: 1; }
+.plan-sum .stat.bad b { color: var(--danger); }
+.plan-sum .big-add { margin-top: 8px; }
+.warn-text { color: var(--warn); opacity: 1; }
+.day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.day-head h3 { margin: 0; font-size: .92rem; }
+.day-head h3::first-letter { text-transform: uppercase; }
+.day-head span { color: var(--muted); font-size: .88rem; font-variant-numeric: tabular-nums; }
+.track .cat-main { display: block; }
+.track .cat-top, .track .bar, .track .sub { display: flex; }
+.track .bar { display: block; height: 8px; }
+.track .sub { margin-top: 4px; color: var(--muted); font-size: .8rem; }
+.track .cat-top span:first-child { font-weight: 600; }
+.cat-top .st { color: var(--muted); }
+.cat-top .st.over { color: var(--danger); font-weight: 700; }
+.cat-top .tag { margin: 0; }
+.tabs button { font-size: .72rem; line-height: 1.1; }
