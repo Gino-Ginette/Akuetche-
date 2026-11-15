@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mon Budget</title>
+<meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <button class="icon-btn" id="prev" aria-label="Mois précédent">‹</button>
+  <button class="month" id="monthLabel" aria-label="Revenir au mois en cours"></button>
+  <button class="icon-btn" id="next" aria-label="Mois suivant">›</button>
+  <button class="icon-btn" id="menuBtn" aria-label="Menu">⋮</button>
+</header>
+
+<main id="app"></main>
+
+<dialog id="itemDialog" class="sheet">
+  <form id="itemForm" method="dialog" novalidate>
+    <h2 id="itemTitle"></h2>
+    <label>Libellé
+      <input id="fLabel" type="text" autocomplete="off" maxlength="60" required>
+    </label>
+    <label><span id="fAmountLabel">Montant</span> (FCFA)
+      <input id="fAmount" type="text" inputmode="numeric" autocomplete="off" required>
+    </label>
+    <div id="expenseFields">
+      <label>Catégorie
+        <select id="fCategory"></select>
+      </label>
+      <label class="check-line">
+        <input id="fDone" type="checkbox">
+        <span id="fDoneLabel">Déjà payée</span>
+      </label>
+      <label id="fActualWrap">Montant réellement payé (FCFA)
+        <input id="fActual" type="text" inputmode="numeric" autocomplete="off" placeholder="Identique au montant prévu">
+      </label>
+    </div>
+    <p class="error" id="fError" hidden></p>
+    <div class="actions">
+      <button type="button" class="btn danger" id="fDelete">Supprimer</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="fCancel">Annuler</button>
+      <button type="submit" class="btn primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="menuDialog" class="sheet">
+  <h2>Options</h2>
+  <div class="menu">
+    <button data-menu="copy">📋 Copier le plan du mois précédent</button>
+    <button data-menu="carry">↪️ Reporter le reste du mois précédent</button>
+    <button data-menu="export">💾 Exporter une sauvegarde</button>
+    <button data-menu="import">📂 Importer une sauvegarde</button>
+    <button data-menu="clear" class="danger-text">🗑️ Vider ce mois</button>
+    <button data-menu="close">Fermer</button>
+  </div>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
