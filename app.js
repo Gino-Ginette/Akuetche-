@@ -98,6 +98,13 @@ let statsPeriod = 'year';         // 'year' ou 'AAAA-MM' pour la répartition
 // et expenses (dépenses datées, déduites du plan et du solde).
 function migrate(s) {
   s.version = 2;
+  // Créances : argent prêté, avec les remboursements reçus.
+  s.loans = (Array.isArray(s.loans) ? s.loans : []).filter(l =>
+    l && typeof l.person === 'string' && Number.isFinite(l.amount));
+  for (const l of s.loans) {
+    l.id = l.id || uid();
+    l.payments = (Array.isArray(l.payments) ? l.payments : []).filter(p => p && Number.isFinite(p.amount));
+  }
   if (!Array.isArray(s.cats)) s.cats = [];
   s.settings = { ...DEFAULT_SETTINGS, ...(s.settings || {}) };
   for (const [ym, m] of Object.entries(s.months)) {
@@ -135,7 +142,7 @@ function load() {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (s && typeof s.months === 'object' && s.months) return migrate(s);
   } catch (e) { /* données absentes ou illisibles */ }
-  return { version: 2, months: {}, cats: [], settings: { ...DEFAULT_SETTINGS } };
+  return { version: 2, months: {}, cats: [], loans: [], settings: { ...DEFAULT_SETTINGS } };
 }
 
 function save() {
@@ -192,8 +199,7 @@ function totals(m) {
 
 // Renvoie les alertes du mois, les plus graves d'abord.
 function alertsFor(ym) {
-  const m = state.months[ym];
-  if (!m) return [];
+  const m = month(ym);
   const t = totals(m);
   const { infoPct, warnPct, cap } = state.settings;
   const out = [];
@@ -238,6 +244,23 @@ function alertsFor(ym) {
   for (let i = 1; i <= 6; i++) {
     const pm = state.months[shift(ym, -i)];
     if (pm) past.push(totals(pm).spent);
+  }
+  // Créances : rappel sur le mois en cours uniquement.
+  if (ym === ymOf(new Date())) {
+    const today = todayStr();
+    const open = state.loans.filter(l => loanLeft(l) > 0 && l.due);
+    const late = open.filter(l => l.due < today);
+    const soon = open.filter(l => l.due >= today && daysBetween(today, l.due) <= 7);
+    const names = list => [...new Set(list.map(l => l.person))].join(', ');
+    const sum = list => list.reduce((s, l) => s + loanLeft(l), 0);
+    if (late.length) {
+      add('loans-late', 'warning', late.length > 1 ? `${late.length} créances en retard` : 'Une créance en retard',
+        `${names(late)} : ${fcfa(sum(late))} à récupérer, échéance dépassée.`);
+    }
+    if (soon.length) {
+      add('loans-soon', 'info', 'Créance bientôt à échéance',
+        `${names(soon)} : ${fcfa(sum(soon))} attendus dans les 7 jours.`);
+    }
   }
   if (past.length >= 2) {
     const avg = past.reduce((a, b) => a + b, 0) / past.length;
@@ -356,7 +379,10 @@ function dayLabel(date) {
 function render() {
   document.querySelectorAll('.tabs button').forEach(b =>
     b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'));
+  const noNav = view === 'loans';
+  $('prev').style.visibility = $('next').style.visibility = noNav ? 'hidden' : '';
   if (view === 'stats') return renderStats();
+  if (view === 'loans') return renderLoans();
   $('monthLabel').textContent = monthName(current);
   const m = month(current);
   const t = totals(m);
@@ -776,6 +802,7 @@ function carryPrevious() {
 /* ---------- Navigation ---------- */
 
 function step(delta) {
+  if (view === 'loans') return;
   if (view === 'stats') { statsYear += delta; statsPeriod = 'year'; statsCat = 'all'; }
   else current = shift(current, delta);
   render();
@@ -783,6 +810,7 @@ function step(delta) {
 $('prev').addEventListener('click', () => step(-1));
 $('next').addEventListener('click', () => step(1));
 $('monthLabel').addEventListener('click', () => {
+  if (view === 'loans') return;
   if (view === 'stats') { statsYear = new Date().getFullYear(); statsPeriod = 'year'; }
   else current = ymOf(new Date());
   render();
@@ -846,7 +874,7 @@ $('importFile').addEventListener('change', async ev => {
   const importedCats = (Array.isArray(data.cats) ? data.cats : []).filter(c =>
     c && typeof c.id === 'string' && typeof c.label === 'string' && typeof c.icon === 'string' &&
     (c.kind === 'income' || c.kind === 'expense'));
-  state = migrate({ months: data.months, cats: importedCats, settings: data.settings });
+  state = migrate({ months: data.months, cats: importedCats, settings: data.settings, loans: data.loans });
   save();
   render();
   toast('Sauvegarde importée.');
@@ -1091,6 +1119,204 @@ let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (view === 'stats') render(); }, 150);
+});
+
+/* ---------- Créances ---------- */
+
+const loanPaid = l => l.payments.reduce((s, p) => s + p.amount, 0);
+const loanLeft = l => Math.max(0, l.amount - loanPaid(l));
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5);
+function fmtDate(date) {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
+
+// Texte et état de l'échéance d'une créance non soldée.
+function dueInfo(l) {
+  if (!l.due) return { text: 'Sans échéance', late: false };
+  const n = daysBetween(todayStr(), l.due);
+  if (n < 0) return { text: `En retard de ${plural(-n, 'jour')}`, late: true };
+  if (n === 0) return { text: "À rembourser aujourd'hui", late: false };
+  return { text: `Échéance le ${fmtDate(l.due)}`, late: false };
+}
+
+function renderLoans() {
+  $('monthLabel').textContent = 'Créances';
+  const loans = state.loans;
+  const lent = loans.reduce((s, l) => s + l.amount, 0);
+  const paid = loans.reduce((s, l) => s + Math.min(l.amount, loanPaid(l)), 0);
+  const open = loans.filter(l => loanLeft(l) > 0)
+    .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
+  const done = loans.filter(l => loanLeft(l) === 0);
+  const late = open.filter(l => dueInfo(l).late).reduce((s, l) => s + loanLeft(l), 0);
+  const pct = lent > 0 ? Math.round(paid / lent * 100) : 0;
+
+  const row = l => {
+    const left = loanLeft(l), p = loanPaid(l);
+    const due = dueInfo(l);
+    const sub = left === 0
+      ? `Remboursé${l.payments.length ? ' le ' + fmtDate(l.payments.reduce((d, x) => (x.date > d ? x.date : d), '')) : ''}`
+      : (due.late ? '⚠️ ' : '') + due.text;
+    return `
+    <li class="row">
+      <button class="body" data-act="open-loan" data-id="${l.id}">
+        <span class="ico" style="--h:${hueOf(l.person)}" aria-hidden="true">${esc(l.person.trim().charAt(0).toUpperCase())}</span>
+        <span class="cat-main">
+          <span class="cat-top"><span class="who">${esc(l.person)}</span><b>${num(left === 0 ? l.amount : left)}</b></span>
+          ${left > 0 && p > 0 ? `<span class="bar"><i style="width:${Math.round(p / l.amount * 100)}%"></i></span>` : ''}
+          <span class="sub ${due.late && left > 0 ? 'late' : ''}">${esc(sub)}${left > 0 && p > 0 ? ` · ${num(p)} reçus sur ${num(l.amount)}` : ''}</span>
+        </span>
+      </button>
+    </li>`;
+  };
+
+  app.innerHTML = `
+  <section class="summary">
+    <div class="label">On me doit</div>
+    <div class="big">${num(lent - paid)} <small>FCFA</small></div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="bar-caption">${lent > 0 ? pct + ' % de ce que vous avez prêté est remboursé' : 'Aucun prêt enregistré'}</div>
+    <div class="stats">
+      <div class="stat"><span>Prêté</span><b>${num(lent)}</b></div>
+      <div class="stat"><span>Remboursé</span><b>${num(paid)}</b></div>
+      <div class="stat"><span>En retard</span><b>${num(late)}</b></div>
+    </div>
+  </section>
+  <button class="btn primary block big-add" data-act="add-loan">＋ Enregistrer un prêt</button>
+  <section class="card">
+    <div class="section-head"><h2>En cours</h2><span class="hint">${plural(open.length, 'créance')}</span></div>
+    ${open.length ? `<ul class="list">${open.map(row).join('')}</ul>`
+      : '<p class="empty">Personne ne vous doit d\'argent pour le moment.</p>'}
+  </section>
+  ${done.length ? `
+  <section class="card">
+    <div class="section-head"><h2>Remboursées</h2><span class="hint">${fcfa(done.reduce((s, l) => s + l.amount, 0))}</span></div>
+    <ul class="list done-loans">${done.map(row).join('')}</ul>
+  </section>` : ''}`;
+}
+
+/* Formulaire d'un prêt */
+
+const loanDlg = $('loanDialog');
+let loanId = null;
+function openLoanForm(id) {
+  loanId = id;
+  const l = id ? state.loans.find(x => x.id === id) : null;
+  $('loanTitle').textContent = l ? 'Modifier le prêt' : 'Nouveau prêt';
+  $('lPerson').value = l ? l.person : '';
+  $('lAmount').value = l ? l.amount : '';
+  $('lDate').value = l ? l.date || '' : todayStr();
+  $('lDue').value = l ? l.due || '' : '';
+  $('lNote').value = l ? l.note || '' : '';
+  $('lError').hidden = true;
+  loanDlg.showModal();
+  if (!l) $('lPerson').focus();
+}
+$('loanForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const fail = msg => { $('lError').textContent = msg; $('lError').hidden = false; };
+  const person = $('lPerson').value.trim();
+  const amount = parseAmount($('lAmount').value);
+  const date = $('lDate').value, due = $('lDue').value;
+  if (!person) return fail('Indiquez le nom de la personne.');
+  if (!(amount > 0)) return fail('Indiquez un montant supérieur à 0.');
+  if (!date) return fail('Indiquez la date du prêt.');
+  if (due && due < date) return fail("L'échéance ne peut pas être avant la date du prêt.");
+  const l = loanId && state.loans.find(x => x.id === loanId);
+  if (l && amount < loanPaid(l)) return fail(`Cette personne a déjà remboursé ${fcfa(loanPaid(l))} : le montant ne peut pas être inférieur.`);
+  const fields = { person, amount, date, due: due || null, note: $('lNote').value.trim() };
+  if (l) Object.assign(l, fields);
+  else state.loans.push({ id: uid(), ...fields, payments: [] });
+  save();
+  loanDlg.close();
+  render();
+  if (l) openLoan(l.id);
+});
+$('lCancel').addEventListener('click', () => { loanDlg.close(); if (loanId) openLoan(loanId); });
+loanDlg.addEventListener('click', ev => { if (ev.target === loanDlg) loanDlg.close(); });
+
+/* Fiche d'une créance : remboursements */
+
+const detailDlg = $('loanDetail');
+function openLoan(id) {
+  const l = state.loans.find(x => x.id === id);
+  if (!l) return;
+  loanId = id;
+  const left = loanLeft(l), paid = loanPaid(l);
+  const due = dueInfo(l);
+  const pays = [...l.payments].sort((a, b) => b.date.localeCompare(a.date)).map(p => `
+    <li><span>${esc(fmtDate(p.date))}</span><b>${num(p.amount)}</b>
+      <button type="button" class="x" data-pay="${p.id}" aria-label="Supprimer ce remboursement">✕</button></li>`).join('');
+  $('loanDetailBody').innerHTML = `
+    <h2>${esc(l.person)}</h2>
+    <div class="stats detail-stats">
+      <div class="stat"><span>Prêté</span><b>${num(l.amount)}</b></div>
+      <div class="stat"><span>Remboursé</span><b>${num(paid)}</b></div>
+      <div class="stat ${left > 0 && due.late ? 'bad' : ''}"><span>Reste dû</span><b>${num(left)}</b></div>
+    </div>
+    <p class="meta">Prêté le ${esc(fmtDate(l.date))}. ${left === 0 ? 'Entièrement remboursé.' : (due.late ? '⚠️ ' : '') + esc(due.text) + '.'}</p>
+    ${l.note ? `<p class="meta">${esc(l.note)}</p>` : ''}
+    ${left > 0 ? `
+    <form id="payForm" novalidate>
+      <div class="field-title">Enregistrer un remboursement</div>
+      <div class="pay-line">
+        <input id="pAmount" type="text" inputmode="numeric" autocomplete="off" value="${left}" aria-label="Montant reçu (FCFA)">
+        <input id="pDate" type="date" value="${todayStr()}" aria-label="Date du remboursement">
+      </div>
+      <p class="error" id="pError" hidden></p>
+      <button type="submit" class="btn primary block">Enregistrer le remboursement</button>
+    </form>` : ''}
+    ${pays ? `<div class="field-title pays-title">Remboursements reçus</div><ul class="pays">${pays}</ul>` : ''}
+    <div class="actions">
+      <button type="button" class="btn danger" data-loan="delete">Supprimer</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-loan="edit">Modifier</button>
+      <button type="button" class="btn" data-loan="close">Fermer</button>
+    </div>`;
+  if (!detailDlg.open) detailDlg.showModal();
+  detailDlg.scrollTop = 0;
+}
+detailDlg.addEventListener('submit', ev => {
+  ev.preventDefault();
+  const l = state.loans.find(x => x.id === loanId);
+  const amount = parseAmount($('pAmount').value);
+  const date = $('pDate').value;
+  const fail = msg => { $('pError').textContent = msg; $('pError').hidden = false; };
+  if (!(amount > 0)) return fail('Indiquez le montant reçu.');
+  if (amount > loanLeft(l)) return fail(`Il ne reste que ${fcfa(loanLeft(l))} à rembourser.`);
+  if (!date) return fail('Indiquez la date du remboursement.');
+  l.payments.push({ id: uid(), amount, date });
+  save();
+  render();
+  const left = loanLeft(l);
+  toast(left === 0 ? `${l.person} a tout remboursé.` : `${fcfa(amount)} reçus. ${l.person} vous doit encore ${fcfa(left)}.`);
+  if (left === 0) detailDlg.close(); else openLoan(l.id);
+});
+detailDlg.addEventListener('click', ev => {
+  if (ev.target === detailDlg) return detailDlg.close();
+  const l = state.loans.find(x => x.id === loanId);
+  const pay = ev.target.closest('[data-pay]');
+  if (pay) {
+    if (!confirm('Supprimer ce remboursement ?')) return;
+    l.payments = l.payments.filter(p => p.id !== pay.dataset.pay);
+    save(); render(); return openLoan(l.id);
+  }
+  const b = ev.target.closest('[data-loan]');
+  if (!b) return;
+  const a = b.dataset.loan;
+  if (a === 'close') return detailDlg.close();
+  if (a === 'edit') { detailDlg.close(); return openLoanForm(l.id); }
+  if (a === 'delete' && confirm(`Supprimer le prêt à ${l.person} et ses remboursements ?`)) {
+    state.loans = state.loans.filter(x => x.id !== l.id);
+    save(); detailDlg.close(); render();
+  }
+});
+app.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]');
+  if (!el) return;
+  if (el.dataset.act === 'add-loan') openLoanForm(null);
+  else if (el.dataset.act === 'open-loan') openLoan(el.dataset.id);
 });
 
 /* ---------- Divers ---------- */

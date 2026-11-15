@@ -313,3 +313,30 @@ form input:focus, form select:focus { outline: 2px solid var(--accent); outline-
 .tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .tips li { display: flex; gap: 10px; align-items: flex-start; }
 .tips p { margin: 0; font-size: .92rem; }
+
+/* Créances */
+.who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .cat-main { display: block; flex: 1; min-width: 0; }
+.row .cat-main .cat-top { display: flex; margin-bottom: 4px; }
+.row .cat-main .cat-top b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row .cat-main .bar { display: block; height: 6px; margin-bottom: 4px; }
+.row .sub.late { color: var(--danger); font-weight: 600; }
+.done-loans .who, .done-loans b { color: var(--muted); font-weight: 500; }
+.ico { font-weight: 700; color: var(--text); }
+.detail-stats { margin: 0 0 10px; }
+.detail-stats .stat { background: var(--bg); }
+.detail-stats .stat span { color: var(--muted); opacity: 1; }
+.detail-stats .stat.bad b { color: var(--danger); }
+.meta { margin: 0 0 8px; font-size: .9rem; color: var(--muted); }
+.pay-line { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.pay-line input {
+  width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--bg); color: var(--text); font-size: 1.05rem;
+}
+.pays-title { margin-top: 16px; }
+.pays { list-style: none; margin: 0 0 8px; padding: 0; }
+.pays li { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); min-height: 44px; font-size: .92rem; }
+.pays li span { flex: 1; }
+.pays .x { border: 0; background: none; color: var(--muted); width: 40px; height: 40px; font-size: 1rem; }
+#loanDetailBody .actions { margin-top: 16px; }
+.tabs button { padding-left: 2px; padding-right: 2px; }

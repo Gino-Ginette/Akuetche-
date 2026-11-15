@@ -95,8 +95,38 @@
   <button data-view="home" aria-current="page"><span aria-hidden="true">🏠</span>Accueil</button>
   <button data-view="plan"><span aria-hidden="true">🗓️</span>Planifier</button>
   <button data-view="expenses"><span aria-hidden="true">🧾</span>Dépenses</button>
+  <button data-view="loans"><span aria-hidden="true">🤝</span>Créances</button>
   <button data-view="stats"><span aria-hidden="true">📊</span>Tableau de bord</button>
 </nav>
+
+<dialog id="loanDialog" class="sheet">
+  <form id="loanForm" method="dialog" novalidate>
+    <h2 id="loanTitle"></h2>
+    <label>À qui avez-vous prêté ?
+      <input id="lPerson" type="text" autocomplete="off" maxlength="40">
+    </label>
+    <label>Montant prêté (FCFA)
+      <input id="lAmount" class="amount-input" type="text" inputmode="numeric" autocomplete="off" placeholder="0">
+    </label>
+    <label>Date du prêt
+      <input id="lDate" type="date">
+    </label>
+    <label>Date d'échéance convenue (facultatif)
+      <input id="lDue" type="date">
+    </label>
+    <label>Note (facultatif)
+      <input id="lNote" type="text" autocomplete="off" maxlength="80" placeholder="Ex. pour la scolarité">
+    </label>
+    <p class="error" id="lError" hidden></p>
+    <div class="actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="lCancel">Annuler</button>
+      <button type="submit" class="btn primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="loanDetail" class="sheet"><div id="loanDetailBody"></div></dialog>
 
 <div id="toast" role="status" aria-live="polite"></div>
 
