@@ -1,4 +1,4 @@
-# Mon Budget
+# Akuetche
 
 Application web personnelle (PWA) pour suivre et planifier son budget mensuel en FCFA.
 
